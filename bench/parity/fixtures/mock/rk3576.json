@@ -1,0 +1,26 @@
+{
+  "device": "rk3576-mock",
+  "device_class": "rk3576",
+  "service_url": "http://rk3576-mock.lan:8621",
+  "captured_at": "2026-05-24T08:00:00Z",
+  "backend": {
+    "asr": "rknn.paraformer",
+    "tts": "rknn.kokoro"
+  },
+  "asr": {
+    "zh": {"cer": 0.062, "baseline_cer": 0.06, "partial_count_p50": 5, "missing_finals": 0},
+    "en": {"wer": 0.085, "baseline_wer": 0.08, "partial_count_p50": 6, "missing_finals": 0}
+  },
+  "tts": {
+    "success_rate": 1.0,
+    "ttfa_p50_ms": 880,
+    "ttfa_p95_ms": 1320,
+    "rtf_p50": 0.42,
+    "pcm_present": true
+  },
+  "v2v": {
+    "barge_in_latency_ms": 620,
+    "stop_intent_ok": true,
+    "empty_final_reconnect_ok": true
+  }
+}

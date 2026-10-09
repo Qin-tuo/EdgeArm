@@ -1,0 +1,26 @@
+{
+  "device": "orin-nano-mock",
+  "device_class": "orin-nano",
+  "service_url": "http://orin-nano-mock.lan:8621",
+  "captured_at": "2026-05-24T08:00:00Z",
+  "backend": {
+    "asr": "jetson.paraformer_trt",
+    "tts": "jetson.kokoro_trt"
+  },
+  "asr": {
+    "zh": {"cer": 0.041, "baseline_cer": 0.04, "partial_count_p50": 7, "missing_finals": 0},
+    "en": {"wer": 0.052, "baseline_wer": 0.05, "partial_count_p50": 8, "missing_finals": 0}
+  },
+  "tts": {
+    "success_rate": 1.0,
+    "ttfa_p50_ms": 280,
+    "ttfa_p95_ms": 410,
+    "rtf_p50": 0.18,
+    "pcm_present": true
+  },
+  "v2v": {
+    "barge_in_latency_ms": 220,
+    "stop_intent_ok": true,
+    "empty_final_reconnect_ok": true
+  }
+}

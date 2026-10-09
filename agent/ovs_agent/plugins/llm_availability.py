@@ -1,0 +1,517 @@
+"""LLMAvailability — health probe + circuit breaker as a single state machine.
+
+Combines the responsibilities of a health probe and a circuit breaker into
+one component to avoid split-brain (health says green / breaker says OPEN).
+
+State machine:
+    HEALTHY ──probe fail──► DEGRADED ──N consecutive fails──► DOWN
+       ▲                       │                                │
+       │                       └────probe pass──┐               │
+       │                                        ▼               │
+       └────────────────────────────────── RECOVERING ◄─probe pass
+                                                │
+                                                └─probe fail──► DOWN
+
+Probes hit `/v1/chat/completions` with `max_tokens=1` — NOT `/v1/models`,
+which only returns metadata and would return green even when generation
+is broken (api_server.py:86-96).
+
+...unless the server exposes a ``/health`` that reports worker state
+(``{"status": "ok"}``), in which case that is used instead
+(``llm_availability_probe_mode``: ``auto`` default / ``health`` / ``chat``).
+A local single-slot runtime keeps exactly one prompt prefix in its KV
+cache, and a chat probe replaces it: measured on RK1828 (2026-09-21) the
+next real turn went from 168 ms to 1367 ms TTFT after one probe, and with
+turns more than 30 s apart every turn re-prefilled the whole system prompt
+and history (TTFT 2.0-2.6 s). ``auto`` falls back to the chat probe when
+``/health`` is missing or does not carry a ``status`` field, so cloud
+endpoints keep the old behaviour.
+
+A probe is also skipped when a real request succeeded within the last
+interval: that is stronger evidence than a probe, and it costs nothing.
+
+Probe timeouts return ``None`` (unknown) so a slow LLM doesn't get
+mis-classified as DOWN by probe cadence alone.
+
+External failures (a real user request that raised) feed back through
+``report_request_failure()`` so the state advances within seconds rather
+than waiting for the next probe interval.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from enum import Enum
+from typing import TYPE_CHECKING
+
+import httpx
+
+from ..plugin import Plugin
+
+if TYPE_CHECKING:
+    from ..app_base import BaseApp
+
+logger = logging.getLogger(__name__)
+
+
+class AvailabilityState(Enum):
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    DOWN = "down"
+    RECOVERING = "recovering"
+    # MED-3: distinct from DEGRADED/DOWN. Reached when the probe has
+    # returned "unknown" (timeout / connect error treated as unknown)
+    # for N consecutive cycles — the LLM may be fine, we just can't
+    # tell, so the dashboard should NOT show green. We don't transition
+    # to DEGRADED here because that would mis-attribute a network
+    # partition to the LLM and start counting toward DOWN.
+    UNKNOWN = "unknown"
+
+
+class LLMUnavailable(RuntimeError):
+    """Raised when the LLM is in DOWN state. Not an APIError → A3 won't retry."""
+
+
+class LLMAvailabilityPlugin(Plugin):
+    """Continuously probe the LLM and expose a state machine.
+
+    Hook events emitted via ``app.broadcast``:
+      ``on_llm_availability_change(data)``
+        data = {"state": str, "last_ok_ts": float | None,
+                "consecutive_failures": int}
+    """
+
+    name = "llm_availability"
+
+    def __init__(
+        self,
+        app: "BaseApp",
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        model_name: str | None = None,
+        interval_s: float | None = None,
+        probe_timeout_s: float | None = None,
+        failures_to_down: int | None = None,
+    ) -> None:
+        super().__init__(app)
+        cfg = app.config
+        # Allow explicit overrides (mainly for tests); fall back to config.
+        self.base_url = (base_url or cfg.llm_base_url).rstrip("/")
+        self.api_key = api_key if api_key is not None else cfg.llm_api_key
+        self.model_name = model_name or cfg.llm_model
+        self.interval_s = float(
+            interval_s
+            if interval_s is not None
+            else getattr(cfg, "llm_availability_probe_interval_s", 30.0)
+        )
+        self.probe_timeout_s = float(
+            probe_timeout_s
+            if probe_timeout_s is not None
+            else getattr(cfg, "llm_availability_probe_timeout_s", 5.0)
+        )
+        self.failures_to_down = int(
+            failures_to_down
+            if failures_to_down is not None
+            else getattr(cfg, "llm_availability_failures_to_down", 3)
+        )
+        # MED-3: how many consecutive "unknown" probe results before we
+        # surface UNKNOWN state. Defaults to 3 so a single transient
+        # network blip doesn't flip the dashboard.
+        self.unknowns_to_unknown_state = int(
+            getattr(cfg, "llm_availability_unknowns_to_unknown_state", 3)
+        )
+
+        mode = str(
+            getattr(cfg, "llm_availability_probe_mode", "auto") or "auto"
+        ).strip().lower()
+        if mode not in ("auto", "health", "chat"):
+            logger.warning(
+                "llm_availability_probe_mode=%r is not auto/health/chat; using auto",
+                mode,
+            )
+            mode = "auto"
+        self.probe_mode = mode
+        # None = not yet known (auto), True = /health answers with a status,
+        # False = use the chat probe.
+        self._health_supported: bool | None = {
+            "auto": None, "health": True, "chat": False,
+        }[mode]
+        self._last_real_ok_mono: float | None = None
+
+        # State.
+        self.state: AvailabilityState = AvailabilityState.HEALTHY
+        self.consecutive_failures: int = 0
+        self.last_ok_ts: float | None = None
+        # MED-3: counts consecutive ``None`` probe results (timeout /
+        # connect error). Reset on any concrete True/False outcome.
+        self.consecutive_unknowns: int = 0
+
+        self._stopped: bool = False
+        self._task: asyncio.Task | None = None
+        # Wake event for force_probe — sleep() races against this.
+        self._wake_evt: asyncio.Event | None = None
+        # Serialise probes (force_probe + main loop should not overlap).
+        self._probe_lock: asyncio.Lock | None = None
+
+    # ── plugin lifecycle ───────────────────────────────────────────
+
+    def setup(self) -> bool:  # pragma: no cover - trivial
+        return bool(getattr(self.app.config, "llm_availability_enabled", True))
+
+    async def start(self) -> None:
+        # Idempotent: double-start would otherwise leak a second probe
+        # task that races the first (and double-fires breaker reports).
+        if self._task is not None and not self._task.done():
+            logger.warning(
+                "LLMAvailabilityPlugin.start() called while probe task "
+                "still running; ignoring duplicate start"
+            )
+            return
+        await super().start()
+        self._stopped = False
+        self._wake_evt = asyncio.Event()
+        self._probe_lock = asyncio.Lock()
+        # Expose ourselves on the app so app_mode/app_base can read state.
+        self.app.llm_availability = self
+        self._task = asyncio.create_task(self.run(), name="llm-availability")
+
+    async def stop(self) -> None:
+        self._stopped = True
+        if self._wake_evt is not None:
+            self._wake_evt.set()
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except (asyncio.CancelledError, Exception):
+                pass
+        # Detach from app so post-shutdown code never queries a stale plugin.
+        if getattr(self.app, "llm_availability", None) is self:
+            self.app.llm_availability = None
+        await super().stop()
+
+    # ── probe ──────────────────────────────────────────────────────
+
+    def _health_url(self) -> str:
+        root = self.base_url.rstrip("/")
+        if root.endswith("/v1"):
+            root = root[: -len("/v1")]
+        return root + "/health"
+
+    async def _probe_health(self) -> bool | None | str:
+        """GET ``/health``. Returns True/False/None like ``_probe``, or the
+        string ``"unsupported"`` when the endpoint is absent or does not
+        report a status (auto mode then falls back to the chat probe)."""
+        url = self._health_url()
+        try:
+            async with httpx.AsyncClient(timeout=self.probe_timeout_s) as client:
+                r = await client.get(url)
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+            logger.info("LLM health probe unreachable (%s: %s); treated as unknown",
+                        type(e).__name__, e)
+            return None
+        except Exception as e:
+            if not self._health_supported:
+                # Not confirmed yet: an odd error here says nothing about the
+                # LLM, so let auto mode fall back to the chat probe.
+                logger.info("LLM health probe error before detection (%s); "
+                            "falling back to chat probe", e)
+                return "unsupported"
+            logger.warning("LLM health probe error: %s", e)
+            return False
+        body = None
+        if r.status_code == 200:
+            try:
+                body = r.json()
+            except Exception:
+                body = None
+        status = body.get("status") if isinstance(body, dict) else None
+        if isinstance(status, str):
+            if self._health_supported is None:
+                logger.info(
+                    "LLM probe: using %s (reports worker status; does not "
+                    "touch the model's prompt cache)", url,
+                )
+                self._health_supported = True
+            ok = status.strip().lower() in ("ok", "healthy", "ready")
+            if not ok:
+                logger.warning("LLM health probe: status=%r", status)
+            return ok
+        if self._health_supported:
+            # Confirmed earlier (or forced by config): a non-status answer
+            # now means the server is unhealthy, not that /health vanished.
+            logger.warning("LLM health probe: HTTP %s without a status", r.status_code)
+            return False
+        if r.status_code in (404, 405, 501) or r.status_code == 200:
+            # The endpoint is absent, or answers without a worker status.
+            return "unsupported"
+        # 5xx / other while still detecting (e.g. the server is booting):
+        # say nothing about support yet — probe via chat this cycle and try
+        # /health again next time instead of latching the chat probe.
+        return "undecided"
+
+    async def _probe(self) -> bool | None:
+        """Health endpoint when the server has one, else a chat request."""
+        if self._health_supported is not False:
+            result = await self._probe_health()
+            if result == "undecided":
+                return await self._probe_chat()
+            if result != "unsupported":
+                return result  # type: ignore[return-value]
+            logger.info(
+                "LLM probe: %s has no status endpoint; using the "
+                "chat/completions probe", self._health_url(),
+            )
+            self._health_supported = False
+        return await self._probe_chat()
+
+    def _recent_real_success(self) -> bool:
+        if self._last_real_ok_mono is None:
+            return False
+        return (time.monotonic() - self._last_real_ok_mono) < self.interval_s
+
+    async def _probe_chat(self) -> bool | None:
+        """Run a minimal inference request.
+
+        Returns:
+            True  — got a 200 with at least one choice (real inference path OK)
+            False — got an HTTP error / connection error / 200 with no choices
+            None  — probe timed out (treat as unknown, do not advance state)
+        """
+        headers = {}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        # llm_base_url already includes /v1 per OpenAI convention; the
+        # mock server's enqueue_* helpers and the real edge-llm both serve
+        # /v1/chat/completions, but we strip trailing /v1 to be defensive
+        # in case someone configures the base without it. Without this
+        # care, appending /v1 again yields /v1/v1/chat/completions → 404
+        # and a one-shot healthy → degraded → healthy flap on startup.
+        chat_url = self.base_url
+        if not chat_url.endswith("/v1") and "/v1/" not in chat_url + "/":
+            chat_url = chat_url.rstrip("/") + "/v1"
+        chat_url = chat_url + "/chat/completions"
+        try:
+            async with httpx.AsyncClient(timeout=self.probe_timeout_s) as client:
+                r = await client.post(
+                    chat_url,
+                    json={
+                        "model": self.model_name,
+                        "messages": [{"role": "user", "content": "."}],
+                        "max_tokens": 1,
+                        "stream": False,
+                    },
+                    headers=headers,
+                )
+                if r.status_code == 200:
+                    try:
+                        data = r.json()
+                    except Exception:
+                        logger.warning("LLM probe: 200 but non-JSON body")
+                        return False
+                    return bool(data.get("choices"))
+                # 400 with a structured guard error means the request was
+                # rejected by an input-validation middleware (e.g. SLV's
+                # input_too_long guard with a low threshold). The LLM
+                # itself may be perfectly healthy — classify as unknown
+                # (None) rather than counting it as a failure, otherwise
+                # a strict guard would silently push the state machine
+                # toward DOWN.
+                if r.status_code == 400:
+                    try:
+                        body = r.json()
+                        code = (body.get("error") or {}).get("code") if isinstance(body, dict) else None
+                    except Exception:
+                        code = None
+                    if code in {"input_too_long", "invalid_request"}:
+                        logger.warning(
+                            "LLM probe rejected by guard (code=%s); "
+                            "treating as unknown (not LLM down)",
+                            code,
+                        )
+                        return None
+                logger.warning("LLM probe: HTTP %s", r.status_code)
+                return False
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+            # Network partition / DNS failure / connect refused — we genuinely
+            # don't know if the LLM is up. Treat as unknown, not as a confirmed
+            # failure (otherwise a partition gets mis-labeled DOWN and recovery
+            # requires double-confirmation we shouldn't need).
+            logger.info("LLM probe unreachable (%s: %s); treated as unknown",
+                        type(e).__name__, e)
+            return None
+        except Exception as e:
+            logger.warning("LLM probe error: %s", e)
+            return False
+
+    # ── main loop ──────────────────────────────────────────────────
+
+    async def run(self) -> None:
+        try:
+            while not self._stopped:
+                if self._recent_real_success():
+                    # A real turn just proved the LLM works and already fed
+                    # the state machine via report_request_success(); skip
+                    # this cycle without counting it a second time.
+                    result: bool | None | str = "skipped"
+                else:
+                    async with (self._probe_lock or asyncio.Lock()):
+                        result = await self._probe()
+                if result == "skipped":
+                    pass
+                elif result is None:
+                    # MED-3: track consecutive unknowns. When the threshold
+                    # is reached, transition to UNKNOWN — better than
+                    # silently staying HEALTHY during a network partition.
+                    self.consecutive_unknowns += 1
+                    self._maybe_enter_unknown()
+                else:
+                    self.consecutive_unknowns = 0
+                    self._advance(result)
+                # Sleep with early-wake support for force_probe.
+                if self._wake_evt is not None:
+                    try:
+                        await asyncio.wait_for(
+                            self._wake_evt.wait(), timeout=self.interval_s
+                        )
+                        self._wake_evt.clear()
+                    except asyncio.TimeoutError:
+                        pass
+                else:  # pragma: no cover - defensive
+                    await asyncio.sleep(self.interval_s)
+        except asyncio.CancelledError:
+            raise
+
+    # ── state machine ──────────────────────────────────────────────
+
+    def _emit_change(self, prev: AvailabilityState) -> None:
+        if prev == self.state:
+            return
+        payload = {
+            "state": self.state.value,
+            "last_ok_ts": self.last_ok_ts,
+            "consecutive_failures": self.consecutive_failures,
+        }
+        logger.info(
+            "LLM availability: %s → %s (failures=%d)",
+            prev.value, self.state.value, self.consecutive_failures,
+        )
+        bus = getattr(self.app, "events", None)
+        if bus is not None:
+            try:
+                bus.emit("on_llm_availability_change", payload)
+            except Exception:  # pragma: no cover - defensive
+                pass
+        try:
+            broadcast = getattr(self.app, "broadcast", None)
+            if broadcast is not None:
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(broadcast("on_llm_availability_change", payload))
+                except RuntimeError:
+                    pass
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+    def _advance(self, ok: bool) -> None:
+        """Advance the state machine using a probe / report result."""
+        prev = self.state
+        if ok:
+            self.last_ok_ts = time.time()
+            if prev == AvailabilityState.HEALTHY:
+                self.consecutive_failures = 0
+            elif prev == AvailabilityState.DEGRADED:
+                self.state = AvailabilityState.HEALTHY
+                self.consecutive_failures = 0
+            elif prev == AvailabilityState.DOWN:
+                # One success isn't enough — need confirmation.
+                self.state = AvailabilityState.RECOVERING
+            elif prev == AvailabilityState.RECOVERING:
+                self.state = AvailabilityState.HEALTHY
+                self.consecutive_failures = 0
+            elif prev == AvailabilityState.UNKNOWN:
+                # MED-3: a clean success from UNKNOWN means the partition
+                # cleared and the LLM is fine — straight back to HEALTHY.
+                self.state = AvailabilityState.HEALTHY
+                self.consecutive_failures = 0
+        else:
+            self.consecutive_failures += 1
+            if prev == AvailabilityState.HEALTHY:
+                self.state = AvailabilityState.DEGRADED
+            elif prev == AvailabilityState.DEGRADED:
+                if self.consecutive_failures >= self.failures_to_down:
+                    self.state = AvailabilityState.DOWN
+            elif prev == AvailabilityState.RECOVERING:
+                self.state = AvailabilityState.DOWN
+            elif prev == AvailabilityState.UNKNOWN:
+                # MED-3: probe got a concrete failure — the LLM really is
+                # broken (not just unreachable). Enter DEGRADED, start the
+                # normal failure-count progression to DOWN.
+                self.state = AvailabilityState.DEGRADED
+            # DOWN + fail → still DOWN.
+        self._emit_change(prev)
+
+    def _maybe_enter_unknown(self) -> None:
+        """MED-3: transition into UNKNOWN once the consecutive-unknown
+        threshold is crossed. We don't disturb DOWN (it's a stronger
+        signal — keep it), and we don't transition out of UNKNOWN here
+        (that's _advance's job)."""
+        if self.consecutive_unknowns < self.unknowns_to_unknown_state:
+            return
+        if self.state in (AvailabilityState.UNKNOWN, AvailabilityState.DOWN):
+            return
+        prev = self.state
+        self.state = AvailabilityState.UNKNOWN
+        logger.warning(
+            "LLM probe returned unknown %d times in a row; "
+            "transitioning %s → UNKNOWN (network partition or hung server?)",
+            self.consecutive_unknowns,
+            prev.value,
+        )
+        self._emit_change(prev)
+
+    # ── external signals ───────────────────────────────────────────
+
+    def report_request_failure(self) -> None:
+        """A real user-driven LLM request just failed (post A3 retries).
+
+        Feeds the state machine without waiting for the next probe — a
+        single failed turn is more informative than 30s of probe silence.
+        """
+        self._advance(False)
+
+    def report_request_success(self) -> None:
+        """A real user-driven LLM request just succeeded — reset failures."""
+        self._last_real_ok_mono = time.monotonic()
+        self._advance(True)
+
+    async def force_probe(self) -> bool | None:
+        """Run a probe immediately (bypassing the interval).
+
+        Returns the probe result (same tri-state as ``_probe``). Used by
+        the dashboard to give operators a manual "ping" button.
+        """
+        async with (self._probe_lock or asyncio.Lock()):
+            result = await self._probe()
+        if result is None:
+            # MED-3: same accounting as the main loop — operator-driven
+            # probes also count toward the unknown threshold.
+            self.consecutive_unknowns += 1
+            self._maybe_enter_unknown()
+        else:
+            self.consecutive_unknowns = 0
+            self._advance(result)
+        # Wake the main loop so it doesn't immediately probe again on
+        # top of ours, and so its sleep cycle re-aligns from "now".
+        if self._wake_evt is not None:
+            self._wake_evt.set()
+        return result
+
+
+__all__ = [
+    "AvailabilityState",
+    "LLMAvailabilityPlugin",
+    "LLMUnavailable",
+]

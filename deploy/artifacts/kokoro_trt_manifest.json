@@ -1,0 +1,77 @@
+{
+  "artifact_set": "kokoro-trt-split-sm87-trt10.3-jp6.2-cuda12.6-2026-05-19",
+  "status": "validated",
+  "hf_repo": "harvestsu/seeed-local-voice-artifacts",
+  "hf_path": "models/kokoro-multi-lang-v1_0/engines/sm87-trt10.3-jp6.2-cuda12.6.tar.gz",
+  "host_signature": {
+    "sm": "87",
+    "tensorrt": "10.3",
+    "jetpack": "6.2",
+    "cuda": "12.6"
+  },
+  "profile": "configs/profiles/jetson-kokoro-trt.json",
+  "compatible_profiles": [
+    "configs/profiles/jetson-kokoro-trt.json",
+    "configs/profiles/jetson-kokoro-trt-perf.json",
+    "configs/profiles/jetson-kokoro-trt-quality.json",
+    "configs/profiles/jetson-kokoro-trt-long.json"
+  ],
+  "runtime_path": [
+    "TRT encoder prefix FP16",
+    "CPU length regulator",
+    "TRT decoder backbone FP16",
+    "TRT source BF16",
+    "TRT generator rest FP16",
+    "CPU post/ISTFT"
+  ],
+  "bundle": {
+    "size": 279478777,
+    "sha256": "4e6e11099624e9900807851c8721fdd61179d0a6a3ebf9132a82765da199c0cb"
+  },
+  "engines": [
+    "kokoro_prefix_encoder_dyn4_128_fp16.engine",
+    "kokoro_decoder_backbone_dyn64_256_fp16.engine",
+    "kokoro_decoder_backbone_dyn256_512_fp16.engine",
+    "kokoro_generator_source_dyn128_512_bf16.engine",
+    "kokoro_generator_source_dyn512_1024_bf16.engine",
+    "kokoro_generator_rest_preexp_dyn64_256_fp16.engine",
+    "kokoro_generator_rest_preexp_dyn256_512_fp16.engine"
+  ],
+  "cpu_sidecars": [
+    "cpu_length_regulator.onnx",
+    "cpu_generator_source.onnx",
+    "cpu_postspec_istft.onnx"
+  ],
+  "validation": {
+    "device": "orin-nano",
+    "health": {
+      "tts": true,
+      "tts_backend": "kokoro_trt",
+      "asr": false
+    },
+    "direct_backend": {
+      "tokens": 126,
+      "frame_t": 311,
+      "long_bucket": true,
+      "duration_s": 7.775,
+      "inference_time_s": 0.505,
+      "rtf": 0.065
+    },
+    "http_tts_long_text": {
+      "duration_s": 19.625,
+      "wall_s": 1.415,
+      "rtf_estimate": 0.072
+    },
+    "http_tts_stream_long_text": {
+      "duration_s": 19.625,
+      "wall_s": 1.146,
+      "rtf_estimate": 0.058
+    }
+  },
+  "build_command": [
+    "python3 scripts/build_engine_bundle.py",
+    "--profile configs/profiles/jetson-kokoro-trt.json",
+    "--out /tmp/seeed-local-voice-kokoro-artifacts",
+    "--skip-build"
+  ]
+}

@@ -1,0 +1,36 @@
+# Throwaway verification image — punctuation + speaker-embedding on RK.
+#
+# Unlike the Jetson slim base, the current RK slim base (rk-slim-fresh-*) is
+# already POST-rename (CMD `server.main:app`) and already ships sherpa-onnx
+# (used by the RK sherpa ASR/TTS fallbacks). So this diff is minimal:
+#   1. reinstall the voxedge wheel that now carries voxedge.capabilities,
+#   2. overlay the post-rename server/ tree (new endpoints + streaming inject)
+#      + configs/.
+# CMD (server.main:app) and sherpa-onnx are inherited from the base.
+#
+# Build (BASE = the currently-deployed RK slim image — inspect it first):
+#   docker build -f deploy/docker/Dockerfile.rk.punct-speaker-test \
+#       --build-arg BASE=openvoicestream:rk-slim-fresh-20260603 \
+#       -t openvoicestream:rk-punct-speaker-test .
+# The build context must contain deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl
+# (rebuilt from the voxedge repo with the capabilities subpackage + the
+# strip-existing-punctuation fix).
+#
+# NOT for production — verification artifact. Real releases use the full
+# Dockerfile.rk from a post-rename commit.
+
+ARG BASE
+FROM ${BASE}
+
+# voxedge wheel WITH capabilities (force-reinstall; --no-deps, all deps in base).
+COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/ps-verify/
+RUN pip install --no-cache-dir --no-deps --force-reinstall \
+        /tmp/ps-verify/voxedge-0.0.1a0-py3-none-any.whl \
+ && rm -rf /tmp/ps-verify
+
+# Updated product tree + profiles.
+COPY server/  /opt/speech/server/
+COPY configs/ /opt/speech/configs/
+
+LABEL build.diff-type="punct-speaker-verify-rk"
+LABEL build.diff-base="${BASE}"

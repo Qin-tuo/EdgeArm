@@ -1,0 +1,378 @@
+# syntax=docker/dockerfile:1.6
+#
+# OpenVoiceStream — Rockchip RK3576 / RK3588 NPU edition (slim).
+#
+# Target: ~950 MB (down from 1.4 GB). Removes only the two heaviest unused
+# dependency chains: librosa (pulls numba/scipy/scikit-learn ~400 MB) and
+# transformers (pulls safetensors/huggingface_hub ~100 MB).
+#
+# Keeps: Kokoro/Matcha CPU fallback (sherpa-onnx + espeak-ng), Silero VAD
+# (onnxruntime), webrtcvad, tokenizers, rknn-toolkit-lite2, and pinned
+# Rockchip userspace runtime libraries.
+#
+# ── Multi-target (BAKE_MODELS) ──────────────────────────────────────────────
+# THREE stages:
+#   base         — code + RK userspace runtime libs (.so) + pip deps + rkvoice
+#                  + voxedge (shared; NO model/engine/voice artifacts).
+#   final-thick  — FROM base + COPY legacy bucketed Kokoro engines + voice-pack.
+#   final-convonly — isolated local-wheel closure + ConvOnly bundle (offline).
+#   final-slim   — FROM base only; RK artifacts are pulled at first start from
+#                  HF per deploy/artifacts/rk_manifest.json (RK_ARTIFACT_SET).
+#
+# Build THICK (factory / offline):
+#   docker build -f deploy/docker/Dockerfile.rk --target final-thick -t openvoicestream:rk-thick .
+#
+# Build SLIM (runtime-pull):
+#   docker build -f deploy/docker/Dockerfile.rk --target final-slim -t openvoicestream:rk-slim .
+#
+# Default `docker build` (no --target) builds the LAST stage (final-slim).
+#
+# Run:
+#   docker compose -f deploy/docker-compose.rk.yml up -d
+#
+# ASR models are NOT baked in either variant — bind-mount via -v at runtime,
+# or let the RK artifact manifest pull them on first start (slim).
+# RK userspace runtime libraries ARE baked in (base) from deploy/rk-runtime/.
+
+# ===========================================================================
+# Stage: pyopenjtalk-builder — build the ARM64 extension wheel out-of-band.
+# The final image only receives the wheel, not the compiler/toolchain.
+# ===========================================================================
+FROM debian:12-slim AS pyopenjtalk-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+ARG PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-dev \
+        build-essential cmake \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /tmp/pyopenjtalk-wheel \
+    && python3 -m pip wheel --no-cache-dir --index-url ${PIP_INDEX} \
+        --wheel-dir /tmp/pyopenjtalk-wheel 'pyopenjtalk==0.4.1'
+
+# ===========================================================================
+# Stage: base — code + RK runtime libs + pip deps (both variants)
+# ===========================================================================
+#
+# BUILD PREREQUISITES (clean clone is NOT enough for this image):
+#   1. git submodule update --init third_party/rkvoice-stream
+#   2. deploy/rk-runtime/ staged (librknnrt.so etc. from the Rockchip SDK,
+#      gitignored) and deploy/kokoro-artifacts/ staged (bucket-8/16/32 +
+#      voice-pack; models/kokoro-multi-lang-v1_0 on the HF artifact repo covers
+#      part of it). Until staging is scripted, this Dockerfile fails at those
+#      COPYs on any other machine.
+FROM debian:12-slim AS runtime-os
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+
+# System deps.
+# libsndfile1  : soundfile audio I/O
+# libgomp1     : OpenMP runtime (onnxruntime, numpy)
+# espeak-ng    : phonemization for Kokoro/Matcha CPU TTS (sherpa-onnx)
+# curl         : health checks, model downloader
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv \
+        libsndfile1 \
+        libgomp1 \
+        espeak-ng \
+        curl \
+        bzip2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build-time PyPI mirror. Default = Tsinghua (CN-fast); override for non-CN:
+#   docker build --build-arg PIP_INDEX=https://pypi.org/simple ...
+ARG PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+ENV PIP_INDEX_URL=${PIP_INDEX}
+
+# Python venv
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Legacy targets retain their existing dependency and editable-install path.
+FROM runtime-os AS base
+
+# ── Runtime dependencies ───────────────────────────────────────────────
+# Core:          numpy<2, soundfile, pysbd
+# VAD:           webrtcvad-wheels, onnxruntime (Silero VAD + Matcha ORT)
+# ASR tokenizer: tokenizers (Rust, lightweight — NOT full transformers)
+# NPU runtime:   rknn-toolkit-lite2
+# CPU TTS:       sherpa-onnx (Kokoro / Matcha fallback)
+# Web:           fastapi, uvicorn[standard], python-multipart, websockets, requests
+# Kokoro G2P:    misaki (+ Chinese deps) — required for Kokoro RK ZH path; without
+#                misaki, Chinese text falls back to char-level lookup that
+#                silently produces 4-byte audio (see docs/archive/specs/kokoro-rk-zh-fix-misaki.md).
+#                Persisted in image so docker compose --force-recreate doesn't drop it.
+RUN pip install --no-cache-dir --index-url ${PIP_INDEX} \
+        'numpy<2' \
+        soundfile \
+        "pysbd>=0.3.4" \
+        "webrtcvad-wheels>=2.0.14" \
+        onnxruntime \
+        tokenizers \
+        rknn-toolkit-lite2 \
+        sherpa-onnx \
+        kaldi-native-fbank \
+        sentencepiece \
+        fastapi \
+        'uvicorn[standard]' \
+        python-multipart \
+        websockets \
+        requests \
+        'misaki[zh]==0.9.4' \
+        'jieba==0.42.1' \
+        'pypinyin==0.55.0' \
+        'pypinyin_dict==0.9.0' \
+        'ordered_set==4.1.0' \
+        'cn2an==0.5.24' \
+        'proces==0.1.7' \
+        'addict==2.4.0' \
+        regex \
+        prometheus_client \
+        httpx \
+    && ldconfig
+
+# ── Application code ──────────────────────────────────────────────────
+
+COPY server/                          /opt/speech/server/
+COPY configs/                      /opt/speech/configs/
+COPY deploy/artifacts/             /opt/speech/deploy/artifacts/
+COPY voices/                       /opt/speech/voices/
+COPY third_party/rkvoice-stream/   /opt/speech/third_party/rkvoice-stream/
+COPY deploy/rk-runtime/            /opt/rk-runtime/
+
+# Install rkvoice-stream as editable for the existing legacy targets. The
+# optional extra keeps Matcha Chinese fallback resampling available at 22.05 kHz.
+RUN pip install --no-cache-dir -e '/opt/speech/third_party/rkvoice-stream[piper-bilingual]'
+
+# ── voxedge (edge-native voice library) ───────────────────────────────
+# Post-migration app/ imports voxedge.*; install the pure-Python py3-none-any
+# wheel (numpy-only core) WITHOUT extras — heavy backend deps (rknn / sherpa)
+# are already provided by this image's own pip deps + rkvoice-stream.
+# See docs/archive/specs/cutover-dockerfile-draft.md §2.
+ARG VOXEDGE_VERSION=0.0.15a1
+# voxedge from PyPI, pinned. The old COPY of deploy/wheels/voxedge-*.whl
+# referenced a file that was never committed (the directory holds only a
+# provenance note), so this image could not be built from a clean clone.
+# Keep the configured domestic mirror primary for reproducible China-network
+# builds; PyPI remains a fallback only when a mirror is temporarily stale.
+RUN pip install --no-cache-dir --force-reinstall --no-deps \
+        --index-url ${PIP_INDEX} \
+        --extra-index-url https://pypi.org/simple \
+        "voxedge==${VOXEDGE_VERSION}"
+
+# Keep the default RK image bounded: UniDic is an optional Misaki/fugashi
+# provider-specific dictionary and must not enter the image transitively.
+# pyopenjtalk is a separate Open JTalk frontend dependency and is also not
+# part of the default EN/ZH image; final-ja is the explicit opt-in target.
+RUN python3 - <<'PY'
+import importlib.util
+from importlib import metadata
+
+def reject_optional_unidic():
+    module = importlib.util.find_spec("unidic_lite")
+    try:
+        distribution = metadata.version("unidic-lite")
+    except metadata.PackageNotFoundError:
+        distribution = None
+    if module is not None or distribution is not None:
+        raise SystemExit(
+            "unidic_lite/unidic-lite is not allowed in the default RK image; "
+            "remove it and use controlled on-demand provisioning for a "
+            "frontend that explicitly requires a dictionary"
+        )
+
+reject_optional_unidic()
+print("RK optional dictionary policy: unidic_lite absent")
+PY
+
+# Model dirs (ASR models still bind-mounted / pulled at runtime, not baked)
+RUN mkdir -p /opt/tts/models /opt/asr/models /opt/asr/lib /opt/models /opt/kokoro-rknn \
+    && ln -sf /opt/rk-runtime/librknnrt.so /usr/lib/librknnrt.so \
+    && ln -sf /opt/rk-runtime/librkllmrt.so /opt/asr/lib/librkllmrt.so \
+    && ln -sf /opt/rk-runtime/librkllmrt.so /usr/lib/librkllmrt.so
+
+# Strip bytecode caches
+RUN find /opt/speech /opt/venv -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; :
+
+ENV MODEL_DIR=/opt/models \
+    TTS_MODEL_DIR=/opt/tts/models \
+    ASR_MODEL_DIR=/opt/asr/models \
+    RK_RUNTIME_MANIFEST=/opt/rk-runtime/MANIFEST.json \
+    RK_ARTIFACT_MANIFEST=/opt/speech/deploy/artifacts/rk_manifest.json \
+    RKNNRT_LIB_PATH=/usr/lib/librknnrt.so \
+    RKLLM_LIB_PATH=/opt/asr/lib/librkllmrt.so \
+    RK_RUNTIME_STRICT=1 \
+    LD_LIBRARY_PATH=/opt/rk-runtime:/opt/asr/lib:/usr/lib
+
+LABEL org.opencontainers.image.title="OpenVoiceStream (Rockchip)" \
+      org.opencontainers.image.source="https://github.com/Seeed-Solution/openvoicestream" \
+      org.opencontainers.image.description="Speech service on Rockchip NPU (RK3576 / RK3588)"
+
+WORKDIR /opt/speech
+ENV PYTHONPATH=/opt/speech
+EXPOSE 8000
+
+CMD ["python3", "-m", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# ===========================================================================
+# Stage: final-thick — base + baked Kokoro engines + voice-pack (offline)
+# ===========================================================================
+FROM base AS final-thick
+
+# Kokoro 4-stage hybrid artifacts (3-bucket router: 8/16/32 frames).
+# Bucket-32 path is mounted at /opt/kokoro-rknn (legacy long-form default).
+# Bucket-8/16 paths are at /opt/kokoro-bucket-{8,16}.
+# These are baked so docker compose --force-recreate doesn't drop them.
+# Source: HF harvestsu/seeed-local-voice-rk-artifacts/rk3588/kokoro-hybrid-v1/.
+# See docs/archive/specs/kokoro-rk-34pct-reproduction-guide.md §3.B.
+# Staged on host at deploy/kokoro-artifacts/ (build-time only; not committed).
+COPY deploy/kokoro-artifacts/bucket-8/   /opt/kokoro-bucket-8/
+COPY deploy/kokoro-artifacts/bucket-16/  /opt/kokoro-bucket-16/
+COPY deploy/kokoro-artifacts/bucket-32/  /opt/kokoro-rknn/
+
+# Kokoro voice-pack (style vectors) — baked because the active RK_ARTIFACT_SET
+# on device is the matcha set, which does not carry these; without them kokoro
+# TTS falls back to a zero style vector and emits silence (root cause fixed
+# 2026-05-31, verified on RK3588). Source: HF rk3588/kokoro-hybrid-v1/{default,style}.npy
+# sha256 e844b0d3200a28b47a2472d4052c2696ac639197aa0ab06bb3fb708781b5a09d.
+COPY deploy/kokoro-artifacts/voice-pack/default.npy /opt/kokoro-rknn/default.npy
+COPY deploy/kokoro-artifacts/voice-pack/style.npy   /opt/kokoro-rknn/style.npy
+
+# ===========================================================================
+# Stage: rkvoice-wheel-builder — build the submodule from a clean checkout
+# ===========================================================================
+FROM runtime-os AS rkvoice-wheel-builder
+RUN pip install --no-cache-dir --index-url ${PIP_INDEX} uv
+COPY third_party/rkvoice-stream/ /src/rkvoice-stream/
+RUN cd /src/rkvoice-stream \
+    && uv build --wheel --out-dir /tmp/rkvoice-wheels \
+    && test "$(find /tmp/rkvoice-wheels -name 'rkvoice_stream-*.whl' | wc -l)" = 1
+
+# ===========================================================================
+# Stage: convonly-base — receipt-bound wheels, isolated from legacy base
+# ===========================================================================
+FROM runtime-os AS convonly-base
+# No layer in this branch contains a source checkout or editable package.
+COPY deploy/docker/requirements.kokoro-convonly.lock /opt/release/dependencies.lock
+COPY deploy/docker/requirements.kokoro-build.lock /opt/release/build-dependencies.lock
+RUN pip install --no-cache-dir --require-hashes -r /opt/release/build-dependencies.lock \
+    && pip install --no-cache-dir --no-build-isolation --require-hashes -r /opt/release/dependencies.lock
+COPY server/ /opt/speech/server/
+COPY configs/ /opt/speech/configs/
+COPY deploy/artifacts/ /opt/speech/deploy/artifacts/
+COPY voices/ /opt/speech/voices/
+COPY deploy/rk-runtime/ /opt/rk-runtime/
+ARG RKVOICE_VERSION=0.2.0
+COPY --from=rkvoice-wheel-builder /tmp/rkvoice-wheels/ /tmp/rkvoice-wheels/
+RUN pip install --no-cache-dir --no-deps /tmp/rkvoice-wheels/*.whl \
+    && test "$(python3 -c 'from importlib.metadata import version; print(version("rkvoice-stream"))')" = "${RKVOICE_VERSION}" \
+    && rm -rf /tmp/rkvoice-wheels
+ARG EN_CORE_MODEL_SHA256=1932429db727d4bff3deed6b34cfc05df17794f4a52eeb26cf8928f7c1a0fb85
+RUN curl -fsSL https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl -o /tmp/en_core_web_sm-3.8.0-py3-none-any.whl \
+    && echo "${EN_CORE_MODEL_SHA256}  /tmp/en_core_web_sm-3.8.0-py3-none-any.whl" | sha256sum -c - \
+    && pip install --no-cache-dir --no-deps /tmp/en_core_web_sm-3.8.0-py3-none-any.whl \
+    && rm -f /tmp/en_core_web_sm-3.8.0-py3-none-any.whl
+ARG VOXEDGE_VERSION=0.0.15a1
+RUN pip install --no-cache-dir --no-deps --index-url ${PIP_INDEX} \
+    --extra-index-url https://pypi.org/simple "voxedge==${VOXEDGE_VERSION}" \
+    && pip check
+RUN python3 - <<'PY'
+from importlib import metadata
+for name in ('unidic', 'unidic-lite', 'pyopenjtalk', 'torch', 'spacy-curated-transformers'):
+    try:
+        metadata.distribution(name)
+    except metadata.PackageNotFoundError:
+        continue
+    raise SystemExit(f'{name} is not allowed in the default ConvOnly image')
+for dist in metadata.distributions():
+    direct = dist.read_text('direct_url.json') or ''
+    if '"editable": true' in direct:
+        raise SystemExit(f'Editable installation: {dist.metadata["Name"]}')
+from misaki import en, zh, espeak
+assert en.G2P(trf=False)('Hello world.')[0]
+assert zh.ZHG2P()('你好世界。')[0]
+import onnxruntime, rknnlite.api, rkvoice_stream, voxedge
+PY
+RUN mkdir -p /opt/tts/models /opt/asr/models /opt/asr/lib /opt/models /opt/kokoro-rknn \
+    && ln -s /opt/rk-runtime/librknnrt.so /usr/lib/librknnrt.so \
+    && ln -s /opt/rk-runtime/librkllmrt.so /opt/asr/lib/librkllmrt.so \
+    && ln -s /opt/rk-runtime/librkllmrt.so /usr/lib/librkllmrt.so
+ENV MODEL_DIR=/opt/models \
+    TTS_MODEL_DIR=/opt/tts/models \
+    ASR_MODEL_DIR=/opt/asr/models \
+    RK_RUNTIME_MANIFEST=/opt/rk-runtime/MANIFEST.json \
+    RK_ARTIFACT_MANIFEST=/opt/speech/deploy/artifacts/rk_manifest.json \
+    RKNNRT_LIB_PATH=/usr/lib/librknnrt.so \
+    RKLLM_LIB_PATH=/opt/asr/lib/librkllmrt.so \
+    RK_RUNTIME_STRICT=1 \
+    LD_LIBRARY_PATH=/opt/rk-runtime:/opt/asr/lib:/usr/lib \
+    PYTHONPATH=/opt/speech
+WORKDIR /opt/speech
+EXPOSE 8000
+CMD ["python3", "-m", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# ===========================================================================
+# Stage: final-convonly — target-specific ConvOnly release bundle (offline)
+# ===========================================================================
+# This is intentionally a separate bundle layout from the legacy 8/16/32
+# hybrid image above.  The staged directory must contain rk3576/ and rk3588/
+# subdirectories matching the corresponding ConvOnly profile roots and a
+# receipt-bound manifest for each target.
+FROM convonly-base AS final-convonly
+COPY deploy/kokoro-convonly-artifacts/ /opt/kokoro-convonly/
+
+# Build Japanese native extensions in a disposable layer so the final image
+# receives only the receipt-bound runtime packages, not the compiler toolchain.
+FROM convonly-base AS ja-builder
+COPY deploy/docker/requirements.kokoro-ja.lock /opt/release/ja-dependencies.lock
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake python3-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/ja-wheels \
+    && pip wheel --no-cache-dir --no-deps --require-hashes \
+        --wheel-dir /opt/ja-wheels -r /opt/release/ja-dependencies.lock \
+    && cd /opt/ja-wheels && sha256sum *.whl > SHA256SUMS \
+    && dpkg-query -W > /opt/ja-toolchain.txt
+
+# ===========================================================================
+# Stage: final-ja — optional Japanese frontend provisioning
+# ===========================================================================
+FROM base AS final-ja
+COPY --from=pyopenjtalk-builder /tmp/pyopenjtalk-wheel/pyopenjtalk-*.whl /tmp/
+RUN pip install --no-cache-dir /tmp/pyopenjtalk-*.whl \
+    && rm -f /tmp/pyopenjtalk-*.whl
+
+# ===========================================================================
+# Stage: final-slim — unified RK runtime with optional JA frontend wheels
+# ===========================================================================
+# No Kokoro engines / voice-pack baked. On first start, server/core/model_downloader
+# (ensure_models, language_mode="rk") calls server/core/rk_artifacts.ensure_rk_artifacts
+# which reads RK_ARTIFACT_MANIFEST (set in base) + the profile's RK_ARTIFACT_SET
+# and pulls the matching set from HF (deploy/artifacts/rk_manifest.json):
+#   - rk3576-default/multilang  → rk3576-multilang-2026-05-17 (Qwen3 ASR + Matcha TTS)
+#   - rk3588-default/multilang  → rk3588-multilang-2026-05-17 (Qwen3 ASR + Matcha TTS)
+#   - rk3588-kokoro-rknn[-34pct] → rk3588-kokoro-hybrid-34pct-2026-05-23
+#     (includes default.npy + style.npy voice-pack, so slim kokoro is NOT silent).
+# This is the DEFAULT build target (last stage).
+FROM convonly-base AS final-slim
+COPY deploy/docker/requirements.kokoro-ja.lock /opt/release/ja-dependencies.lock
+COPY --from=ja-builder /opt/ja-toolchain.txt /opt/release/ja-toolchain.txt
+RUN --mount=type=bind,from=ja-builder,source=/opt/ja-wheels,target=/tmp/ja-wheels,ro \
+    cd /tmp/ja-wheels \
+    && sha256sum -c SHA256SUMS \
+    && cp SHA256SUMS /opt/release/ja-wheels.sha256 \
+    && pip install --no-cache-dir --no-index --no-deps \
+       ./pyopenjtalk-*.whl ./fugashi-*.whl ./jaconv-*.whl ./mojimoji-*.whl \
+    && pip check \
+    && python3 - <<'PY'
+from importlib import metadata
+for name in ('pyopenjtalk', 'fugashi', 'jaconv', 'mojimoji'):
+    metadata.version(name)
+for name in ('unidic', 'unidic-lite'):
+    try:
+        metadata.distribution(name)
+    except metadata.PackageNotFoundError:
+        continue
+    raise SystemExit(f'{name} must remain external data')
+PY

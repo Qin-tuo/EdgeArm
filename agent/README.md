@@ -1,0 +1,240 @@
+# openvoicestream-agent
+
+Agent-layer client on top of [OpenVoiceStream (SLV)](../README.md).
+SLV provides `/v2v/stream` (ASR + TTS + VAD + barge-in) — this package
+adds the LLM, the session, the plugin system, and the audio I/O.
+
+## Architecture
+
+```
++----------+   PCM       +-----------+   text     +---------+
+|   mic    | -----------> |    SLV    | <--------- |  LLM    |
++----------+              |  /v2v/    |  tokens    | (edge-  |
+                          |  stream   | ---------> |  llm)   |
++----------+   PCM        |           |            +---------+
+| speaker  | <----------- |           |
++----------+              +-----------+
+```
+
+ONE persistent WebSocket to SLV per App lifetime. SLV does the
+ASR / VAD / sentence splitting / TTS server-side. The agent only
+orchestrates LLM streaming and barge-in.
+
+## Hard Invariants
+
+1. **Single persistent WS** to `/v2v/stream`, opened with
+   `multi_utterance: true`. NOT a new connection per turn.
+2. **LLM tokens go DIRECTLY to SLV** as `text` frames. The agent does
+   NOT do client-side sentence buffering — SLV's `SentenceBuffer` runs
+   server-side and is the single source of truth.
+3. **Session history is sent FULL** to the LLM, no client-side
+   trimming or summarization. Edge-LLM's prefix cache is the
+   optimization.
+4. **Barge-in**: on `asr_partial` while TTS is playing, send
+   `{"type":"abort"}` to SLV and drain the local playback queue.
+5. **Plugin hooks are observer broadcasts**, not routers.
+   `MultiModeApp.on_user_utterance` is the single router; modes decide
+   behavior behind that stable entrypoint.
+6. **Protocol constants are vendored in `ovs_agent/protocol.py`**, kept
+   byte-for-byte in sync with the server's `server/core/v2v.py`. The agent
+   has NO import dependency on the server source tree. Never redeclare the
+   constants elsewhere in the agent.
+7. **Prefix-cache metrics are streaming-safe**. The EdgeLLM backend asks
+   for `return_cache_metrics` on every turn and the dashboard updates
+   when the final SSE chunk carries `cache_metrics`.
+
+## Layout
+
+```
+agent/
+├── pyproject.toml
+├── ovs_agent/
+│   ├── __init__.py        # package init (no sys.path shim; self-contained)
+│   ├── protocol.py        # vendored V2V wire constants (sync w/ server/core/v2v.py)
+│   ├── app_base.py        # BaseApp orchestrator
+│   ├── app_mode.py        # AppMode / ModeManager strategy framework
+│   ├── audio_io.py        # sounddevice mic + speaker
+│   ├── cli.py             # `ovs-agent run [app]`
+│   ├── config.py          # YAML loader, env var substitution
+│   ├── event_bus.py       # pub/sub
+│   ├── modes/             # chat / interpreter / monologue / transcribe
+│   ├── plugin.py          # Plugin ABC with observer hooks
+│   ├── session.py         # OpenAI-format history (no trimming)
+│   ├── slv_client.py      # persistent WS to /v2v/stream
+│   └── llm/
+│       ├── base.py
+│       ├── openai_compat.py
+│       └── edge_llm.py    # prefix-cache flags + streaming cache metrics
+└── apps/
+    ├── multi_mode/
+        ├── app.py         # MultiModeApp -- runtime-switchable voice modes
+        └── config.yaml
+    └── companion_robot/
+        ├── app.py         # CompanionRobotApp -- robot-oriented scaffold
+        └── config.yaml
+```
+
+## Per-app documentation contract
+
+Each directory under `ovs_agent/apps/<name>/` is an application/business
+layer, not a second speech engine. The app's `app.py` defines product
+behavior, plugins, tools, modes, wake-word handling, and device actions;
+`config.yaml` defines the runtime wiring and defaults.
+
+Every app intended for deployment should contain a `README.md` with:
+
+- the app's purpose and the SenseCraft solution IDs that use it;
+- the shared runtime dependencies: `ovs_agent`, SLV `/v2v/stream`, and the
+  selected LLM, translation, or device services;
+- a deployment matrix: solution asset path, compose file, service names,
+  image tags/digests, hardware target, and required host devices;
+- recommended ASR/TTS/LLM models and the reason for the recommendation;
+- functional acceptance steps and expected health/ready signals;
+- measured results only when they include hardware, software pins,
+  configuration, test command, sample count, and raw-result provenance.
+
+Do not copy the shared SLV or `ovs_agent` implementation into an app
+directory. If an app has no measured result for a target, write `TBD` or
+`not measured` instead of reusing a backend benchmark from another profile.
+
+The app is normally started with:
+
+```bash
+uv run ovs-agent run <name> --config <path-to-config.yaml>
+```
+
+The deployed solution may provide a different config and service URL from
+the app's local default. The solution's compose/config is authoritative for
+the deployment record. See the [app catalog](ovs_agent/apps/README.md) for
+the required README sections and record templates.
+
+## Quick start
+
+Prereqs:
+
+- SLV running locally with `/v2v/stream` exposed (default `ws://localhost:8621`)
+- edge-llm-chat-service running at `http://localhost:8000/v1` (OpenAI compatible)
+
+```bash
+cd agent
+uv sync
+uv run pytest tests/ -v
+uv run ovs-agent run
+```
+
+Env overrides:
+
+```bash
+export OVS_SLV_URL="ws://192.168.1.100:8621/v2v/stream"
+export OVS_LLM_URL="http://192.168.1.100:8000/v1"
+export OVS_LLM_MODEL="qwen2.5-3b-instruct"
+uv run ovs-agent run multi_mode
+```
+
+## Built-In Modes
+
+`MultiModeApp` is the default app. It keeps one SLV connection open and
+switches behavior through AppMode strategies:
+
+| Mode | Purpose |
+|---|---|
+| `chat` | Normal multi-turn voice chat. |
+| `interpreter` | Stateless Chinese-to-English interpretation. |
+| `monologue` | Periodic proactive speech, ignoring user turns. |
+| `transcribe` | ASR pass-through only; no LLM and no TTS. |
+
+Set `default_mode` in `apps/multi_mode/config.yaml`, or switch at runtime
+from the debug dashboard's mode menu.
+
+The dashboard can also edit the current mode's `system_prompt` and
+`temperature`. Overrides take effect on the next turn and are written back to
+the app YAML when the app was started from a config file.
+
+## Runtime Chinese/English wake words
+
+The minimal `conversation` app can optionally use the bundled sherpa-onnx KWS
+model instead of an always-open conversation. The acoustic model is fixed, but
+the phrase is not: a Chinese or English phrase is compiled at startup or safely
+replaced at runtime without reloading model weights.
+
+```bash
+PIPELINE_MODE=wake_word \
+WAKEWORD_BACKEND=sherpa_onnx \
+WAKEWORD_PHRASE="你好小智" \
+uv run --extra kws ovs-agent run conversation
+```
+
+Runtime control is available on the loopback-only debug dashboard API:
+`GET/PATCH /api/wakeword/runtime`, `POST /api/wakeword/validate`, and
+`POST /api/wakeword/test-tone`. Successful detection plays the configured short
+wake tone. Phrase updates are atomically persisted to the configured
+`metadata.wakeword.state_path` when that path is writable.
+
+## Companion Robot App
+
+`CompanionRobotApp` is a product scaffold for embodied voice projects. It keeps
+the same SLV streaming pipeline and AppMode lifecycle, then adds a stable place
+for robot-facing plugins such as wake control, pose/action dispatch, or device
+telemetry.
+
+```bash
+cd agent
+uv run ovs-agent run companion_robot
+```
+
+Use this when the downstream product is a robot-style assistant and should keep
+project-specific wiring out of the generic `multi_mode` app.
+
+## Self-contained protocol constants
+
+`ovs_agent` has NO import dependency on the SLV server source tree. The V2V
+wire-protocol constants are vendored in `ovs_agent/protocol.py`, kept
+byte-for-byte in sync with the server's `server/core/v2v.py` (the single
+source of truth). This means the agent image ships only `agent/` — no
+`sys.path` shim and no `PYTHONPATH=/opt/slv` are needed. If you add a new
+message type to the server protocol, mirror it in `ovs_agent/protocol.py`.
+
+## Writing a plugin
+
+```python
+from ovs_agent import Plugin
+
+class LoggerPlugin(Plugin):
+    name = "logger"
+
+    async def on_user_utterance(self, text: str) -> None:
+        print(f"user said: {text}")
+
+    async def on_assistant_sentence(self, sentence: str) -> None:
+        print(f"assistant said: {sentence}")
+```
+
+Register before `app.run()`:
+
+```python
+app = DialogueApp(config)
+app.register(LoggerPlugin(app))
+await app.run()
+```
+
+## Writing a new App
+
+For most behavior changes, create an `AppMode` and register it with
+`MultiModeApp`:
+
+```python
+from ovs_agent.app_mode import AppMode, ModeContext
+
+class MyMode(AppMode):
+    name = "my_mode"
+    display_name = "My Mode"
+
+    async def on_user_utterance(self, ctx: ModeContext, text: str) -> None:
+        await ctx.run_default_dialogue_turn(text)
+```
+
+For a completely different app, subclass `BaseApp`, drop a `config.yaml`
+next to `app.py` under `apps/<name>/`, and run with `ovs-agent run <name>`.
+
+See [`docs/extending_with_custom_modes.md`](docs/extending_with_custom_modes.md)
+for the full AppMode lifecycle, override order, and a custom mode example.

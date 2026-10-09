@@ -1,0 +1,63 @@
+# Translator with bare-metal-built CT2 (Orin NX, sm_87, CUDA 12.6, cuDNN 9.3).
+# Built on the same Ubuntu 22.04 + glibc 2.35 as the runtime base + Jetson host,
+# so libctranslate2.so / _ext.so load cleanly with no glibc/libstdc++ ABI gaps.
+# cuDNN/cuBLAS/cudart come from host bind-mount at run time — image stays slim.
+#
+# Build context expected layout:
+#   wheels/         cp310 aarch64 service wheels (fastapi, uvicorn, sentencepiece,
+#                   pydantic, numpy<2, …)
+#   ct2-artifacts/  libctranslate2.so* + ctranslate2-*-cp310-*.whl produced on
+#                   the Orin NX host (see /home/harvest/ct2-build/CTranslate2).
+#   server.py       the translator service (copied from services/translator/).
+#
+# Build:
+#   docker build -f Dockerfile.slim -t seeed-local-voice:translator-slim-v2 .
+# Run (with host CUDA bind-mount):
+#   docker run -d --name translator-slim-v2 --runtime=nvidia -p 9001:9001 \
+#     -v translator-models:/models:ro \
+#     -v /usr/local/cuda/lib64:/host-cuda:ro \
+#     -v /usr/lib/aarch64-linux-gnu/nvidia:/host-nvidia-libs:ro \
+#     -v /usr/lib/aarch64-linux-gnu:/host-libs:ro \
+#     -e LD_LIBRARY_PATH=/usr/local/lib:/host-libs:/host-nvidia-libs:/host-cuda \
+#     -e TRANSLATOR_DEVICE=cuda \
+#     -e TRANSLATOR_MODEL_PATH=/models/nllb-200-distilled-600m-ct2-int8 \
+#     seeed-local-voice:translator-slim-v2
+
+FROM ubuntu:22.04 AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    PYTHONUNBUFFERED=1 \
+    TRANSLATOR_DEVICE=cuda \
+    TRANSLATOR_DEVICE_INDEX=0
+
+# Tsinghua apt mirror for fast install from CN.
+RUN sed -i 's|http://ports.ubuntu.com/ubuntu-ports|http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports|g' \
+        /etc/apt/sources.list \
+ && apt-get update && apt-get install -y --no-install-recommends \
+      python3 python3-pip libgomp1 libopenblas0 ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Service deps from pre-downloaded cp310 aarch64 wheels.
+COPY wheels/ /tmp/wheels/
+RUN pip3 install --no-cache-dir --no-index --find-links=/tmp/wheels \
+      fastapi 'uvicorn[standard]' sentencepiece pydantic 'numpy<2' \
+ && rm -rf /tmp/wheels
+
+# Bare-metal-built CTranslate2 + native lib
+COPY ct2-artifacts/ /tmp/ct2/
+RUN pip3 install --no-cache-dir --no-deps /tmp/ct2/ctranslate2-*.whl \
+ && cp /tmp/ct2/libctranslate2.so* /usr/local/lib/ \
+ && ldconfig \
+ && rm -rf /tmp/ct2
+
+WORKDIR /app
+COPY server.py /app/server.py
+
+VOLUME /models
+EXPOSE 9001
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:9001/health').read()" || exit 1
+
+CMD ["python3", "/app/server.py"]

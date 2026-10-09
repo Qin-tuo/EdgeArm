@@ -1,0 +1,114 @@
+# OpenVoiceStream — Rockchip RK3576 (cat-remote).
+#
+# Usage (on cat-remote, repo root as cwd):
+#   docker compose -f deploy/docker-compose.rk.yml up -d
+#
+# For RK3588 (radxa) see deploy/docker-compose.radxa.yml — same image,
+# different artifact set.
+#
+# Hardware: needs /dev (RKNN NPU char devs) and host networking. The image
+# is built against Debian 12 slim; see deploy/docker/Dockerfile.rk.
+
+services:
+  speech:
+    # Built on radxa (RK3588) from main 1eba801 + the staged rk-runtime
+    # artifacts. Same digest as the RK3588 line's openvoicestream tag --
+    # one image, two repo names, different artifact set at runtime.
+    image: ${SPEECH_IMAGE:-sensecraft-missionpack.seeed.cn/solution/seeed-local-voice:rk-20260803b}
+    container_name: openvoicestream
+    privileged: true
+    init: true
+    network_mode: host
+    command: ["python3", "-m", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8621"]
+    mem_limit: 7500m
+    memswap_limit: 7500m
+    volumes:
+      - /dev:/dev
+      - ../configs:/opt/speech/configs:ro
+      - rk-asr-models:/opt/asr/models
+      - rk-tts-models:/opt/tts/models
+      - seeed-local-voice-data:/opt/seeed-local-voice/data
+      # NPU matmul parallel helper (PYTHONPATH below)
+      - /home/cat/project/rknn-matmul-parallel:/opt/rknn-matmul-parallel:ro
+    environment:
+      - OVS_PROFILE=${OVS_PROFILE:-}
+      # Week 2: structured JSON logs in production.
+      - OVS_LOG_FORMAT=${OVS_LOG_FORMAT:-json}
+      # Admin endpoints are loopback-only by default. Set OVS_ADMIN_KEY (in
+      # .env or shell) and pass it back as the X-Admin-Key header to enable
+      # remote admin. Unset keeps remote admin disabled (403).
+      - OVS_ADMIN_KEY=${OVS_ADMIN_KEY:-}
+      - OVS_PROFILE_DEFAULT=${OVS_PROFILE_DEFAULT:-rk3576-default}
+      # Open-dialogue endpointing defaults. Override in .env for product tuning.
+      - OVS_VAD_BACKEND=${OVS_VAD_BACKEND:-silero}
+      - OVS_VAD_SILENCE_MS=${OVS_VAD_SILENCE_MS:-400}
+      # ── ASR ─────────────────────────────────────────────────────────
+      - ASR_BACKEND=qwen3_asr_rk
+      - ASR_DECODER_TYPE=rkllm
+      - ASR_DECODER_QUANT=w8a8
+      - ASR_PLATFORM=rk3576
+      - ASR_ENABLED_CPUS=4
+      - ASR_NPU_CORE_MASK=${ASR_NPU_CORE_MASK:-}
+      - ASR_MAX_NEW_TOKENS=${ASR_MAX_NEW_TOKENS:-}
+      - ASR_FINAL_STOP_ON_PUNCT=${ASR_FINAL_STOP_ON_PUNCT:-}
+      - ASR_FINAL_STOP_MIN_CHARS=${ASR_FINAL_STOP_MIN_CHARS:-}
+      - ASR_FINAL_STOP_MIN_CHUNKS=${ASR_FINAL_STOP_MIN_CHUNKS:-}
+      - ASR_MODEL_DIR=/opt/asr/models
+      - RKLLM_LIB_PATH=/opt/asr/lib/librkllmrt.so
+      - RK_ARTIFACT_AUTO_DOWNLOAD=${RK_ARTIFACT_AUTO_DOWNLOAD:-1}
+      - RK_ARTIFACT_REPO_ID=${RK_ARTIFACT_REPO_ID:-harvestsu/seeed-local-voice-rk-artifacts}
+      - RK_ARTIFACT_MANIFEST=${RK_ARTIFACT_MANIFEST:-/opt/speech/deploy/artifacts/rk_manifest.json}
+      - RK_ARTIFACT_SET=${RK_ARTIFACT_SET:-rk3576-multilang-2026-05-17}
+      - RK_ARTIFACT_ROOT=${RK_ARTIFACT_ROOT:-/}
+      - RK_ARTIFACT_REVISION=${RK_ARTIFACT_REVISION:-main}
+      - HF_ENDPOINT=${HF_ENDPOINT:-}
+      # True streaming: 400 ms chunks + left-context encoder + silero VAD
+      # endpoint pre-fire → near-zero stop→final latency. Required for the
+      # multi_utterance V2V path (see docs/api/v2v-stream.md) to surface
+      # per-utterance VAD endpoints. Set to 0 to fall back to legacy
+      # StreamSession (window / reuse / kv_streaming modes).
+      - QWEN3_ASR_CHUNK_CONFIRM=${QWEN3_ASR_CHUNK_CONFIRM:-}
+      - QWEN3_ASR_STREAM_MODE=${QWEN3_ASR_STREAM_MODE:-}
+      - QWEN3_ASR_STREAM_TRUE=${QWEN3_ASR_STREAM_TRUE:-}
+      - QWEN3_ASR_TRUE_ROLL_SEC=${QWEN3_ASR_TRUE_ROLL_SEC:-}
+      - QWEN3_ASR_TRUE_PARTIAL_TOKENS=${QWEN3_ASR_TRUE_PARTIAL_TOKENS:-}
+      - QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS=${QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS:-}
+      - QWEN3_ASR_TRUE_PARTIAL_WARMUP=${QWEN3_ASR_TRUE_PARTIAL_WARMUP:-}
+      - QWEN3_ASR_VAD_FINAL_ASYNC=${QWEN3_ASR_VAD_FINAL_ASYNC:-}
+      - QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S=${QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S:-}
+      - VAD_ENDPOINT_SILENCE_MS=${VAD_ENDPOINT_SILENCE_MS:-}
+      # ── TTS ─────────────────────────────────────────────────────────
+      - TTS_BACKEND=matcha_rknn
+      - TTS_MODEL_DIR=/opt/tts/models
+      - SHERPA_TTS_MODEL_DIR=/opt/tts/models/matcha-icefall-zh-en
+      - TTS_PROVIDER=cpu
+      - TTS_NUM_THREADS=4
+      - TTS_DEFAULT_SID=0
+      - OVS_TTS_SPEAKERS_FILE=/opt/seeed-local-voice/data/speakers.json
+      - SPARKTTS_VOICES_DIR=/opt/seeed-local-voice/data/sparktts_voices
+      - MATCHA_MAX_PHONEMES=64
+      - MATCHA_MODEL_SEQ_LEN=${MATCHA_MODEL_SEQ_LEN:-}
+      - MATCHA_USE_ORT=${MATCHA_USE_ORT:-}
+      - MATCHA_MODEL=matcha-s64.rknn
+      - VOCOS_MODEL=vocos-16khz-600.rknn
+      - VOCOS_FRAMES=600
+      - MATCHA_ONNX_PATH=/opt/tts/models/model-steps-3.onnx
+      # ── Misc ────────────────────────────────────────────────────────
+      - PYTHONPATH=/opt/rknn-matmul-parallel
+      - MODEL_DIR=/opt/tts/models
+    restart: unless-stopped
+    # Week 1 hardening: rely on /readyz; /health is deprecated.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8621/readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  rk-asr-models:
+    name: rk-asr-models
+  rk-tts-models:
+    name: rk-tts-models
+  seeed-local-voice-data:
+    name: seeed-local-voice-data

@@ -1,0 +1,6 @@
+# Per-host build artifacts produced on the Jetson — see BUILD.md.
+# These are large and tied to a specific JetPack / CUDA / Python combo,
+# so they live on the build host and never enter the repo.
+ct2-artifacts/
+wheels/
+uv.lock

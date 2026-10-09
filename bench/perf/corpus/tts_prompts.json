@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "description": "Fixed TTS perf-test prompts. Text content is the contract; identical input across devices.",
+  "prompts": [
+    {"id": "zh_short_01", "lang": "zh", "category": "short", "text": "你好，今天天气真不错。", "char_count": 11},
+    {"id": "zh_short_02", "lang": "zh", "category": "short", "text": "好的，已经为您安排好了。", "char_count": 12},
+    {"id": "zh_short_03", "lang": "zh", "category": "short", "text": "请问还有其他需要帮助的吗？", "char_count": 13},
+    {"id": "zh_short_04", "lang": "zh", "category": "short", "text": "明天上午十点的会议已经提醒您。", "char_count": 14},
+    {"id": "zh_short_05", "lang": "zh", "category": "short", "text": "音量已经调到合适的大小。", "char_count": 12},
+    {"id": "zh_long_01",  "lang": "zh", "category": "long",  "text": "根据您的需求，我为您推荐了三家附近评分较高的餐厅，第一家是位于市中心的川菜馆，第二家是河边的日式料理，第三家是商场里的西餐厅，您比较喜欢哪一家？", "char_count": 71},
+    {"id": "zh_long_02",  "lang": "zh", "category": "long",  "text": "今天的天气预报显示，上海地区多云转晴，气温在二十二度到二十八度之间，下午有可能出现短时阵雨，外出请记得携带雨具。", "char_count": 55},
+    {"id": "zh_long_03",  "lang": "zh", "category": "long",  "text": "您本月的电费账单已经出账，本月总用电量为三百二十五度，应缴电费为一百九十六元，已经从您绑定的银行卡自动扣款成功。", "char_count": 55},
+    {"id": "zh_long_04",  "lang": "zh", "category": "long",  "text": "为您搜索到关于深度学习的相关资料，深度学习是机器学习的一个分支，它通过模拟人脑神经网络的工作方式来处理复杂的数据模式，广泛应用在图像识别和自然语言处理领域。", "char_count": 76},
+    {"id": "zh_long_05",  "lang": "zh", "category": "long",  "text": "您预订的明天下午三点从北京到上海的高铁票已经出票成功，车次是G一三五次，二等座七号车厢十三A号，请提前三十分钟到达北京南站。", "char_count": 61},
+    {"id": "en_short_01", "lang": "en", "category": "short", "text": "Hello, how can I help you today?", "char_count": 32},
+    {"id": "en_short_02", "lang": "en", "category": "short", "text": "Your order has been confirmed.", "char_count": 30},
+    {"id": "en_short_03", "lang": "en", "category": "short", "text": "The timer is set for ten minutes.", "char_count": 33},
+    {"id": "en_short_04", "lang": "en", "category": "short", "text": "Lights in the living room are now off.", "char_count": 38},
+    {"id": "en_short_05", "lang": "en", "category": "short", "text": "Please say that again, I did not catch it.", "char_count": 42},
+    {"id": "en_long_01",  "lang": "en", "category": "long",  "text": "Based on your preferences, I have found three highly rated restaurants nearby. The first is an Italian place downtown, the second is a Japanese restaurant by the river, and the third is a steakhouse in the shopping center. Which one sounds best to you?", "char_count": 252},
+    {"id": "en_long_02",  "lang": "en", "category": "long",  "text": "Tomorrow's weather forecast shows mostly cloudy conditions with a high of twenty four degrees Celsius and a low of seventeen. There is a thirty percent chance of light rain in the afternoon, so consider bringing an umbrella.", "char_count": 224},
+    {"id": "en_long_03",  "lang": "en", "category": "long",  "text": "Your electricity bill for this month is now available. Total consumption was three hundred and twenty five kilowatt hours, and the amount due is one hundred and ninety six dollars. The payment was automatically deducted from your linked bank account.", "char_count": 251},
+    {"id": "en_long_04",  "lang": "en", "category": "long",  "text": "Here is a brief summary about deep learning. Deep learning is a branch of machine learning that uses artificial neural networks inspired by the human brain to identify complex patterns in data. It is widely applied in image recognition and natural language processing.", "char_count": 269},
+    {"id": "en_long_05",  "lang": "en", "category": "long",  "text": "Your reservation has been confirmed. The high speed train from Beijing to Shanghai departs tomorrow at three in the afternoon, train number G one three five, second class car number seven, seat thirteen A. Please arrive at Beijing South station thirty minutes early.", "char_count": 265}
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "device": "rk3576-fail-mock",
+  "device_class": "rk3576",
+  "service_url": "http://rk3576-fail-mock.lan:8621",
+  "captured_at": "2026-05-24T08:00:00Z",
+  "_note": "Intentionally failing fixture: CER regression > 5%, TTFA p50 over RK3576 budget upper bound (1500ms), V2V stop_intent broken. Used to verify the parity comparator detects each class of failure.",
+  "backend": {
+    "asr": "rknn.paraformer",
+    "tts": "rknn.kokoro"
+  },
+  "asr": {
+    "zh": {"cer": 0.12, "baseline_cer": 0.06, "partial_count_p50": 5, "missing_finals": 0},
+    "en": {"wer": 0.18, "baseline_wer": 0.08, "partial_count_p50": 6, "missing_finals": 2}
+  },
+  "tts": {
+    "success_rate": 0.9,
+    "ttfa_p50_ms": 1800,
+    "ttfa_p95_ms": 2400,
+    "rtf_p50": 0.61,
+    "pcm_present": true
+  },
+  "v2v": {
+    "barge_in_latency_ms": 1200,
+    "stop_intent_ok": false,
+    "empty_final_reconnect_ok": true
+  }
+}

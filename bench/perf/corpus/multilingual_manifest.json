@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "description": "Multilingual smoke corpus (ja/es/ko/de/fr). FLEURS subset, CC BY 4.0.",
+  "audio_spec": {
+    "sample_rate": 16000,
+    "channels": 1,
+    "bit_depth": 16,
+    "format": "wav"
+  },
+  "files": [
+    {
+      "id": "ja_short_01",
+      "filename": "multilingual/ja/ja_short_01.wav",
+      "lang": "ja",
+      "category": "short",
+      "duration_s": 3.6,
+      "transcript": "火曜日に大阪で亡くなりました。",
+      "sha256": "19e318ef216366b679d15bde740828f7d5aa44d889d89cf0890d35122572b9d3"
+    },
+    {
+      "id": "ja_long_01",
+      "filename": "multilingual/ja/ja_long_01.wav",
+      "lang": "ja",
+      "category": "long",
+      "duration_s": 10.44,
+      "transcript": "インターネットで「敵対的環境コース」について検索すると、おそらく現地企業の住所が出てくるでしょう。",
+      "sha256": "22733a3b820b339b52f4bab220d6cbec2fc7bfa7ccf2aee2a029241e36f43f91"
+    },
+    {
+      "id": "es_short_01",
+      "filename": "multilingual/es/es_short_01.wav",
+      "lang": "es",
+      "category": "short",
+      "duration_s": 3.66,
+      "transcript": "Su deceso ocurrió el martes, en Osaka.",
+      "sha256": "09bec763dbe0cc10eac8ecd1dcee3ef1bdf990652c1ed7bb8c7c26925d6a93e1"
+    },
+    {
+      "id": "es_long_01",
+      "filename": "multilingual/es/es_long_01.wav",
+      "lang": "es",
+      "category": "long",
+      "duration_s": 12.84,
+      "transcript": "Se recomienda enfáticamente a los viajeros que se informen sobre cualquier riesgo de clima extremo en el área que visitan, dado que ello puede afectar sus planes de viaje.",
+      "sha256": "9e2384cc1ab81a4fb7a03a3e5425647e90ed9324dfcae476ec8ea9eef85cc237"
+    },
+    {
+      "id": "ko_short_01",
+      "filename": "multilingual/ko/ko_short_01.wav",
+      "lang": "ko",
+      "category": "short",
+      "duration_s": 3.9,
+      "transcript": "조사가 이루어졌습니다.",
+      "sha256": "c155a2fbd2da186c86570a7b9178780e8207407e7d5f821f3e82aa5fffbd7401"
+    },
+    {
+      "id": "ko_long_01",
+      "filename": "multilingual/ko/ko_long_01.wav",
+      "lang": "ko",
+      "category": "long",
+      "duration_s": 12.48,
+      "transcript": "다리 밑 수직 간격은 15미터이며, 공사는 2011년 8월에 마무리되었으며, 해당 다리의 통행금지는 2017년 3월까지이다.",
+      "sha256": "1e6f1730446a1c4f492e033324a2fb00bc146211c7c54c7eaccbcd08184a09e5"
+    },
+    {
+      "id": "de_short_01",
+      "filename": "multilingual/de/de_short_01.wav",
+      "lang": "de",
+      "category": "short",
+      "duration_s": 3.96,
+      "transcript": "Für die Archipele und Seen brauchen Sie nicht unbedingt eine Yacht.",
+      "sha256": "747f609dbe0e802350194b85f39f0b801d3115c0dbd627c44747fc7acfced89f"
+    },
+    {
+      "id": "de_long_01",
+      "filename": "multilingual/de/de_long_01.wav",
+      "lang": "de",
+      "category": "long",
+      "duration_s": 11.16,
+      "transcript": "Er griff auch alles an, was ins Wasser kam; selbst ein großer Dinosaurier wie der T. Rex war ihm nicht gewachsen.",
+      "sha256": "e06a2ecfa64b3a988176a3863fb32af2166bc321d6f3e6ead7a4fc12f862787c"
+    },
+    {
+      "id": "fr_short_01",
+      "filename": "multilingual/fr/fr_short_01.wav",
+      "lang": "fr",
+      "category": "short",
+      "duration_s": 3.78,
+      "transcript": "Une bombe a explosé devant le bureau du gouverneur général.",
+      "sha256": "284731748ba1f9efedfbe3ed0fd87e1ddc6f827320a99e28b883286eef970b70"
+    },
+    {
+      "id": "fr_long_01",
+      "filename": "multilingual/fr/fr_long_01.wav",
+      "lang": "fr",
+      "category": "long",
+      "duration_s": 10.2,
+      "transcript": "L’accident a eu lieu en terrain montagneux, et il semblerait que cela ait été causé par un incendie malveillant.",
+      "sha256": "9deff27009a368dfe11739192ff5e9feb725f9c4a7520d5e2942036a55abcecf"
+    }
+  ]
+}

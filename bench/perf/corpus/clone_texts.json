@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "description": "Fixed text prompts used to test voice cloning. Re-using a few prompts from tts_prompts.json keeps clone vs non-clone comparable.",
+  "texts": [
+    {"id": "zh_short_01", "lang": "zh", "text": "你好，今天天气真不错。"},
+    {"id": "zh_short_03", "lang": "zh", "text": "请问还有其他需要帮助的吗？"},
+    {"id": "zh_long_01",  "lang": "zh", "text": "根据您的需求，我为您推荐了三家附近评分较高的餐厅，第一家是位于市中心的川菜馆，第二家是河边的日式料理。"},
+    {"id": "en_short_01", "lang": "en", "text": "Hello, how can I help you today?"},
+    {"id": "en_short_02", "lang": "en", "text": "Your order has been confirmed."}
+  ]
+}

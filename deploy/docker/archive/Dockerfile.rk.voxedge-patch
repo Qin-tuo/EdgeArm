@@ -1,0 +1,28 @@
+# Thin RK patch image: reinstall voxedge wheel and refreshed Python sources on
+# top of an existing Rockchip image. Use this for Python-only voxedge/app
+# validation without rebuilding the full RK dependency stack.
+#
+# Build context must be the seeed-local-voice repo and must contain:
+#   deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl
+#
+# Example:
+#   docker build -f deploy/docker/Dockerfile.rk.voxedge-patch \
+#     --build-arg BASE_IMAGE=openvoicestream:rk-slim-fresh-20260603 \
+#     -t openvoicestream:rk-voxedge-patch .
+
+ARG BASE_IMAGE=openvoicestream:rk-slim-fresh-20260603
+FROM ${BASE_IMAGE}
+
+COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl
+RUN pip install --no-cache-dir --force-reinstall --no-deps \
+        /tmp/wheels/voxedge-0.0.1a0-py3-none-any.whl \
+    && rm -rf /tmp/wheels
+
+COPY server/ /opt/speech/server/
+COPY configs/ /opt/speech/configs/
+COPY third_party/rkvoice-stream/ /opt/speech/third_party/rkvoice-stream/
+
+WORKDIR /opt/speech
+ENV PYTHONPATH=/opt/speech/third_party/rkvoice-stream:/opt/speech
+
+CMD ["python3", "-m", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,26 @@
+{
+  "device": "orin-nx-mock",
+  "device_class": "orin-nx",
+  "service_url": "http://orin-nx-mock.lan:8621",
+  "captured_at": "2026-05-24T08:00:00Z",
+  "backend": {
+    "asr": "jetson.paraformer_trt",
+    "tts": "jetson.trt_edge_llm_tts"
+  },
+  "asr": {
+    "zh": {"cer": 0.038, "baseline_cer": 0.04, "partial_count_p50": 7, "missing_finals": 0},
+    "en": {"wer": 0.048, "baseline_wer": 0.05, "partial_count_p50": 8, "missing_finals": 0}
+  },
+  "tts": {
+    "success_rate": 1.0,
+    "ttfa_p50_ms": 195,
+    "ttfa_p95_ms": 260,
+    "rtf_p50": 0.12,
+    "pcm_present": true
+  },
+  "v2v": {
+    "barge_in_latency_ms": 150,
+    "stop_intent_ok": true,
+    "empty_final_reconnect_ok": true
+  }
+}

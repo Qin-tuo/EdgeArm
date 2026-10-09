@@ -1,0 +1,26 @@
+{
+  "device": "rpi-hailo-mock",
+  "device_class": "rpi-hailo",
+  "service_url": "http://rpi-hailo-mock.lan:8621",
+  "captured_at": "2026-05-24T08:00:00Z",
+  "backend": {
+    "asr": "hailo.paraformer",
+    "tts": "cpu.kokoro_ort"
+  },
+  "asr": {
+    "zh": {"cer": 0.058, "baseline_cer": 0.06, "partial_count_p50": 5, "missing_finals": 0},
+    "en": {"wer": 0.078, "baseline_wer": 0.08, "partial_count_p50": 6, "missing_finals": 0}
+  },
+  "tts": {
+    "success_rate": 1.0,
+    "ttfa_p50_ms": 720,
+    "ttfa_p95_ms": 1050,
+    "rtf_p50": 0.55,
+    "pcm_present": true
+  },
+  "v2v": {
+    "barge_in_latency_ms": 480,
+    "stop_intent_ok": true,
+    "empty_final_reconnect_ok": true
+  }
+}

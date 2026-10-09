@@ -1,0 +1,44 @@
+# Throwaway verification image — punctuation + speaker-embedding capability.
+#
+# The slim Jetson bases currently deployed predate the app/→server/ package
+# rename (they run `app.main:app` and ship `app/`, no `server/`, and their
+# bundled voxedge wheel has no `capabilities/` subpackage). To validate the
+# new opt-in features on real Jetson ARM hardware without a 30-min full
+# rebuild, this thin diff layers onto such a base:
+#   1. reinstalls the voxedge wheel that now carries voxedge.capabilities,
+#   2. installs sherpa-onnx (absent from the slim Jetson base),
+#   3. overlays the post-rename server/ tree + configs/,
+#   4. flips the uvicorn target to server.main:app.
+# The inherited entrypoint (entrypoint.jetson.sh → `exec "$@"`) runs the new CMD.
+# The base's stale app/ tree stays as harmless dead weight.
+#
+# Build (BASE = the currently-running slim image — inspect it first):
+#   docker build -f deploy/docker/Dockerfile.jetson.punct-speaker-test \
+#       --build-arg BASE=openvoicestream:jetson-slim-talkerfix2 \
+#       -t openvoicestream:jetson-punct-speaker-test .
+# The build context must contain deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl
+# (rebuilt from the voxedge repo with the capabilities subpackage).
+#
+# NOT for production — this is a verification artifact. Real releases use the
+# full Dockerfile.jetson.slim from a post-rename commit.
+
+ARG BASE
+FROM ${BASE}
+
+# voxedge wheel WITH the capabilities subpackage (force-reinstall; --no-deps
+# because every dependency already exists in the base). Keep the PEP 427 wheel
+# filename intact — pip rejects a renamed wheel.
+COPY deploy/wheels/voxedge-0.0.1a0-py3-none-any.whl /tmp/ps-verify/
+RUN pip3 install --no-cache-dir --no-deps --force-reinstall \
+        /tmp/ps-verify/voxedge-0.0.1a0-py3-none-any.whl \
+ && pip3 install --no-cache-dir sherpa-onnx \
+ && rm -rf /tmp/ps-verify
+
+# Post-rename product tree + profiles.
+COPY server/  /opt/speech/server/
+COPY configs/ /opt/speech/configs/
+
+LABEL build.diff-type="punct-speaker-verify"
+LABEL build.diff-base="${BASE}"
+
+CMD ["python3", "-m", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]

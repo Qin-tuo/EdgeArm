@@ -1,0 +1,16 @@
+{
+  "name": "mac-cpu-sherpa",
+  "description": "Local macOS CPU profile for the server-loop tool round-trip proof. Streaming Paraformer (zh_en) ASR + Matcha (zh) TTS, both sherpa-onnx CPU. Models live under $HOME/ovs-models (set via env below). Throwaway — not a deploy target.",
+  "asr_backend": "cpu.sherpa_asr",
+  "tts_backend": "cpu.sherpa",
+  "execution_policy": {
+    "mode": "concurrent"
+  },
+  "env": {
+    "LANGUAGE_MODE": "zh_en",
+    "STREAMING_ASR_PROVIDER": "cpu",
+    "OFFLINE_ASR_PROVIDER": "cpu",
+    "TTS_PROVIDER": "cpu"
+  },
+  "tts_model_id": "sherpa"
+}

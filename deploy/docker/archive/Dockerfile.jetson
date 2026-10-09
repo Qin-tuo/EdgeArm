@@ -1,0 +1,281 @@
+# syntax=docker/dockerfile:1.6
+#
+# OpenVoiceStream — Jetson Orin Nano / NX / AGX (JetPack 6.x, CUDA 12.6, TRT 10.3)
+#
+# Single Python dependency set, selected at runtime by profile:
+#   jetson-zh-en                 — Paraformer ASR + Matcha TTS (zh_en default)
+#   jetson-qwen3asr-matcha-nx    — Qwen3 ASR + Matcha TTS (multilanguage default,
+#                                  runs on Nano 8GB and NX 16GB)
+#   jetson-multilang-highperf    — Qwen3 ASR + Qwen3 TTS heavy preset (NX/AGX only)
+#
+# ── Multi-target (BAKE_MODELS) ──────────────────────────────────────────────
+# This Dockerfile defines THREE stages:
+#   base         — code + runtime libs + worker binaries + required .so
+#                  (shared by both variants; NO model/engine artifacts).
+#   final-thick  — FROM base + COPY baked model/engine artifacts (factory /
+#                  offline image; CustomVoice ref talker embeds baked in).
+#   final-slim   — FROM base only; model/engine artifacts are pulled at first
+#                  start from HF/CDN by server/core/model_downloader.py.
+# Docker cannot conditionally skip a COPY, so the two variants are separate
+# BuildKit targets selected via --target.
+#
+# Build THICK (factory / offline, ~ baked):
+#   docker build -f deploy/docker/Dockerfile.jetson --target final-thick \
+#                --build-arg LANGUAGE_MODE=zh_en \
+#                -t openvoicestream:jetson-zh_en-thick .
+#
+# Build SLIM (runtime-pull, ~500MB-1GB):
+#   docker build -f deploy/docker/Dockerfile.jetson --target final-slim \
+#                --build-arg LANGUAGE_MODE=zh_en \
+#                -t openvoicestream:jetson-zh_en-slim .
+#
+# Default `docker build` (no --target) builds the LAST stage (final-slim).
+#
+# Runtime (GPU access requires --runtime=nvidia):
+#   docker run --runtime=nvidia --network=host \
+#     -e OVS_PROFILE=jetson-zh-en \
+#     -v seeed-models:/opt/models \
+#     openvoicestream:jetson-zh_en-slim
+
+#
+# BUILD PREREQUISITES (clean clone is NOT enough for this image):
+#   1. git submodule update --init third_party/jetson-voice-engine
+#      (the pin resolves again since recover/v090-engines-20260713)
+#   2. deploy/jetson-workers/customvoice-v071/ staged with three gitignored
+#      binaries: qwen3_tts_inference, libNvInfer_edgellm_plugin.so.1.0,
+#      ref_talker_embeds_15row.bin. As of 2026-07-21 these are NOT on the HF
+#      artifact repo -- they exist in the published images of this line
+#      (e.g. seeed-local-voice:jetson-v1.14-hotswap, extract from /opt/edgellm-bin)
+#      and on the original build host. Until they are published, this Dockerfile
+#      fails at those COPYs on any other machine.
+ARG LANGUAGE_MODE=zh_en
+
+# ===========================================================================
+# Stage: base — code + runtime libs + worker binaries + .so (both variants)
+# ===========================================================================
+FROM arm64v8/ubuntu:22.04 AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+
+# Build-time PyPI mirror
+ARG PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+ENV PIP_INDEX_URL=${PIP_INDEX}
+
+# System deps + Python 3.10
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.10 python3.10-dev python3-pip \
+        libasound2 libsndfile1 sox curl ca-certificates binutils bzip2 \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# FastAPI + runtime deps (shared by both modes)
+RUN pip3 install --no-cache-dir --index-url ${PIP_INDEX} \
+        fastapi \
+        "uvicorn[standard]" \
+        soundfile \
+        python-multipart \
+        numpy \
+        tokenizers \
+        "webrtcvad-wheels>=2.0.14" \
+        "cuda-python>=12,<13" \
+        websockets \
+        requests \
+        "pysbd>=0.3.4" \
+        "onnxruntime>=1.20" \
+        onnx \
+        prometheus_client \
+        httpx \
+        kaldi-native-fbank \
+        sentencepiece \
+        piper-phonemize
+
+ARG LANGUAGE_MODE=zh_en
+ENV LANGUAGE_MODE=${LANGUAGE_MODE}
+
+RUN set -eux; \
+    case "$LANGUAGE_MODE" in \
+      zh_en) echo "OVS_PROFILE_DEFAULT=jetson-zh-en" >> /etc/openvoicestream.env ;; \
+      multilanguage) echo "OVS_PROFILE_DEFAULT=jetson-qwen3asr-matcha-nx" >> /etc/openvoicestream.env ;; \
+      *) echo "Unknown LANGUAGE_MODE=$LANGUAGE_MODE (expected zh_en|multilanguage)" >&2; exit 1 ;; \
+    esac; \
+    rm -rf /root/.cache /tmp/*
+
+# Application code
+COPY server/      /opt/speech/server/
+COPY configs/  /opt/speech/configs/
+COPY voices/   /opt/speech/voices/
+COPY deploy/artifacts/ /opt/speech/deploy/artifacts/
+COPY deploy/docker/entrypoint.jetson.sh /opt/speech/entrypoint.jetson.sh
+RUN chmod +x /opt/speech/entrypoint.jetson.sh
+
+# ── voxedge (edge-native voice library) ───────────────────────────────
+# Post-migration app/ imports voxedge.* (main.py, voxedge_backend_config.py);
+# install the pure-Python py3-none-any wheel (numpy-only core) WITHOUT extras —
+# heavy backend deps (tensorrt / cuda-python / onnxruntime) are already in this
+# image and voxedge's backend imports are lazy. The wheel is staged into
+# deploy/wheels/ on the build host (sibling repo, outside the build context).
+# See docs/archive/specs/cutover-dockerfile-draft.md §2.
+ARG VOXEDGE_VERSION=0.0.5a0
+# voxedge from PyPI, pinned. The old COPY of deploy/wheels/voxedge-*.whl
+# referenced a file that was never committed (the directory holds only a
+# provenance note), so this image could not be built from a clean clone.
+# pypi.org is primary because mirrors lag fresh releases; PIP_INDEX stays as
+# the fallback so a China build keeps working.
+RUN pip3 install --no-cache-dir --force-reinstall --no-deps \
+        --index-url https://pypi.org/simple \
+        --extra-index-url ${PIP_INDEX} \
+        "voxedge==${VOXEDGE_VERSION}"
+
+# Qwen3 high-performance runtime bundle. This is intentionally separate from
+# model/engine artifacts: qwen3-edgellm owns artifact manifest/download/verify,
+# while the image owns the runtime worker/plugin binaries and validation scripts.
+# These are WORKER BINARIES + plugin .so, NOT models — they ship in BOTH the
+# slim and thick variants (base stage).
+# Explicit file list (NOT the whole dir) so customvoice-v071/ is NOT duplicated
+# here — those binaries go to /opt/edgellm-bin below. --chmod=0755 sets the exec
+# bit at copy time so we don't need a `chmod +x` RUN (which would re-copy each
+# ~60MB binary into a second layer).
+# 去掉 spark_tts_worker：deploy/jetson-workers/ 下从来没有这个文件，线上镜像
+# /opt/jv-workers/ 里也没有（只有 4 个产物 + manifest），构建到这一步必然
+# "not found" —— 说明这份 Dockerfile 从未被成功构建过。
+#
+# 现役的 SparkTTS 走的是另一条路径：configs/profiles/jetson-edgellm-v091-sparktts.json
+# 里 SPARKTTS_WORKER_BINARY=/opt/edgellm-v091/bin/spark_tts_worker，由 v091 运行时
+# 镜像提供，确实存在。只有旧 profile jetson-sparktts-0p5b-nx.json 还指向
+# /opt/jv-workers/spark_tts_worker —— 那个路径在任何镜像里都不存在，该 profile
+# 本就跑不起来，与本次改动无关。
+COPY --chmod=0755 \
+    deploy/jetson-workers/qwen3_asr_worker \
+    deploy/jetson-workers/qwen3_tts_worker \
+    deploy/jetson-workers/moss_tts_nano_worker \
+    deploy/jetson-workers/moss_tts_nano_ort_worker.py \
+    deploy/jetson-workers/libNvInfer_edgellm_plugin.so \
+    deploy/jetson-workers/libNvInfer_edgellm_plugin_asr.so \
+    deploy/jetson-workers/MANIFEST.json \
+    /opt/jv-workers/
+# Runtime only reads the qwen3 artifact manifest under deploy/ (see
+# server/core/qwen3_artifact_downloader.py). The rest of the engine repo
+# (engine-overlay/, models/, native/, scripts/, tests/, docs/) is build-time
+# tooling for jetson-voice-engine — excluded to keep the runtime image slim.
+COPY third_party/jetson-voice-engine/deploy/ /opt/qwen3-edgellm-jetson/deploy/
+
+# Models are downloaded on first start by server/core/model_downloader.py based on
+# LANGUAGE_MODE / OVS_PROFILE. Cached in /opt/models volume.
+# 插件用软链接而非 cp：两个插件 67MB + 68MB，原先每个各复制三份，白占约 280MB。
+# 三个路径并存是为了兼容不同 worker 各自硬编码的查找位置。
+#
+# 为什么是软链接而不是硬链接：硬链接的源在上面的 COPY 层，overlayfs 必须先把它
+# copy-up 到本层才能建链接 —— 结果是下层一份、上层一份，仍然两份实体（实测
+# /opt/jv-workers 与 /opt/edgellm* 的 inode 不同，只省了三份变两份）。硬链接要
+# 生效必须与 COPY 同层，而 COPY 必然独占一层，只能改用 BuildKit bind mount 重写，
+# 代价更大。软链接跨层不触发 copy-up，一个 inode 几十字节，直接落到一份实体。
+#
+# 之所以安全：
+#   1. 这两个 .so 是只读运行时插件，由 EDGELLM_PLUGIN_PATH 指向后 dlopen，
+#      dlopen 正常跟随软链接；全仓库没有任何地方写它们。
+#   2. 没有任何挂载盖住 /opt/jv-workers（compose 只挂 host CUDA/TensorRT、
+#      /opt/models、data 三处），所以链接不会悬空。改挂载时须重新确认这一点。
+# 注意：软链接对使用方可见 —— 打包 /opt/edgellm* 时要带 `tar -h`，否则打进的是
+# 链接而非文件。
+RUN set -eux; \
+    mkdir -p /opt/models /opt/edgellm /opt/edgellm-bin /opt/models/qwen3-edgellm; \
+    for d in /opt/edgellm /opt/edgellm-bin; do \
+        ln -s /opt/jv-workers/libNvInfer_edgellm_plugin.so     "$d/libNvInfer_edgellm_plugin.so"; \
+        ln -s /opt/jv-workers/libNvInfer_edgellm_plugin_asr.so "$d/libNvInfer_edgellm_plugin_asr.so"; \
+    done; \
+    # 「是软链接且不悬空」是构建期就确定的事实，在这里断言即可，不必等部署后
+    # 靠 docker exec 去探。构建期失败比运行期发现便宜得多。
+    for f in /opt/edgellm/libNvInfer_edgellm_plugin.so \
+             /opt/edgellm/libNvInfer_edgellm_plugin_asr.so \
+             /opt/edgellm-bin/libNvInfer_edgellm_plugin.so \
+             /opt/edgellm-bin/libNvInfer_edgellm_plugin_asr.so; do \
+        test -L "$f" || { echo "BUILD FAIL: $f 不是软链接（去重失效）" >&2; exit 1; }; \
+        test -e "$f" || { echo "BUILD FAIL: $f 悬空" >&2; exit 1; }; \
+    done
+
+# CustomVoice v0.7.1 fork-port runtime BINARIES (patched inference binary +
+# patched plugin). These are runtime executables, not models, so they live in
+# base (both variants). The reference talker embeds (a model artifact) are
+# baked only in final-thick; the slim variant pulls them at runtime.
+# Source: orin-nx ~/customvoice-v071-snapshot/20260526/ (W8A16 PASS, 2026-05-26).
+#   qwen3_tts_inference            md5 f50fedc960d8edf7304f897cddbbdaf7
+#   libNvInfer_edgellm_plugin.so.1.0 md5 3d6761ebbe0946720f9c1d35a56c1cda
+COPY --chmod=0755 deploy/jetson-workers/customvoice-v071/qwen3_tts_inference            /opt/edgellm-bin/qwen3_tts_inference
+COPY --chmod=0755 deploy/jetson-workers/customvoice-v071/libNvInfer_edgellm_plugin.so.1.0 /opt/edgellm-bin/libNvInfer_edgellm_plugin.so.1.0
+RUN set -eux; \
+    echo "CUSTOMVOICE_BIN=/opt/edgellm-bin/qwen3_tts_inference"                   >> /etc/openvoicestream.env; \
+    echo "CUSTOMVOICE_PLUGIN=/opt/edgellm-bin/libNvInfer_edgellm_plugin.so.1.0"   >> /etc/openvoicestream.env; \
+    echo "CUSTOMVOICE_TALKER_EMBEDS=/opt/edgellm-bin/ref_talker_embeds_15row.bin" >> /etc/openvoicestream.env
+
+# --- edgellm v0.9.0 (edgellm-v090) bake plan — COMMENTS ONLY, the v080/v071
+# build below is unchanged. The v090 image (P5; thin overlay in
+# deploy/docker/archive/Dockerfile.jetson.edgellm-v090-overlay, base tag TBD) bakes:
+#   /opt/edgellm-v090/
+#     libNvInfer_edgellm_plugin.so   ONE plugin for ASR + TTS Base/CustomVoice
+#                                    (per-variant _cv/_asr plugins retired),
+#                                    built from fork pin
+#                                    integration/v090-sparktts@e8c59c1
+#                                    (submodule pin repin/v090-overlay@95e97e9)
+#     bin/            qwen3_asr_worker, qwen3_tts_streaming_worker (+ rebuilt
+#                     moss_tts_nano_worker) from the same pin
+#     engines/        asr_thinker_full_int4 (md5 59e221b5), asr_audio_encoder
+#                     (9446e727), tts_* per configs/profiles/
+#                     jetson-edgellm-v090-*.json + configs/leaves/*-v090.yaml
+# and MUST set (v0.9.0 resolves the plugin RELATIVE TO CWD otherwise):
+#   ENV EDGELLM_PLUGIN_PATH=/opt/edgellm-v090/libNvInfer_edgellm_plugin.so
+# v090 drops EDGE_LLM_ASR_MEL_SETTINGS/_FILTERS: the 0.9.0 audio runner
+# ingests wav directly (EDGELLM_REQUEST_AUDIO_WAV=1 is the new default), so
+# no whisper_feature_extractor.json / mel_filters.bin front-end config.
+ENV MODEL_DIR=/opt/models \
+    NVIDIA_VISIBLE_DEVICES=all \
+    CUDA_MODULE_LOADING=LAZY \
+    EDGE_LLM_BASE=/opt/edgellm-bin \
+    EDGE_LLM_BUILD_DIR=. \
+    OVS_WORKER_BUILD=/opt/jv-workers \
+    QWEN3_EDGELLM_JETSON_ROOT=/opt/qwen3-edgellm-jetson \
+    EDGELLM_PLUGIN_PATH=/opt/edgellm-bin/libNvInfer_edgellm_plugin.so \
+    LD_LIBRARY_PATH=/usr/local/lib/python3.10/dist-packages/onnxruntime/capi:/host-cuda:/host-nvidia-libs:/host-libs \
+    PYTHONPATH=/opt/speech:/usr/lib/python3.10/dist-packages
+
+LABEL org.opencontainers.image.title="OpenVoiceStream" \
+      org.opencontainers.image.source="https://github.com/Seeed-Solution/openvoicestream" \
+      org.opencontainers.image.description="GPU-accelerated speech service for Jetson Orin"
+
+WORKDIR /opt/speech
+EXPOSE 8000
+
+ENTRYPOINT ["/opt/speech/entrypoint.jetson.sh"]
+CMD ["python3", "-m", "uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# ===========================================================================
+# Stage: final-thick — base + baked model/engine artifacts (factory/offline)
+# ===========================================================================
+FROM base AS final-thick
+
+# CustomVoice reference talker embeds (model artifact). Baked here so the
+# offline image needs no first-start download. CustomVoice profiles opt-in via
+# QWEN3_TTS_PRELOAD_TALKER_EMBEDS / CUSTOMVOICE_TALKER_EMBEDS (env already
+# written in base, pointing at this path).
+#   ref_talker_embeds_15row.bin    md5 fed8b23ca46246f5993ec26ab7d5c0f4
+COPY deploy/jetson-workers/customvoice-v071/ref_talker_embeds_15row.bin /opt/edgellm-bin/ref_talker_embeds_15row.bin
+
+# Qwen3 / Matcha / Kokoro / MOSS engines may additionally be baked into a thick
+# image by COPYing prebuilt artifacts into /opt/models here. By default they are
+# left out (engine_resolver / *_artifacts.py rebuild or fetch on first start),
+# so the thick variant differs from slim only by the CustomVoice embeds above
+# plus whatever the operator stages. Keep this stage's model COPYs additive.
+
+# ===========================================================================
+# Stage: final-slim — base only; models/engines pulled at first start from HF/CDN
+# ===========================================================================
+# No model/engine artifacts. On first start, server/core/model_downloader.py
+# (ensure_models) fetches everything the active profile needs:
+#   - Qwen3 ASR/TTS engines     → _ensure_qwen3_artifacts (qwen3-edgellm script + manifest)
+#   - MOSS TTS engines+codec     → _ensure_moss_artifacts  (deploy/artifacts/moss_manifest.json)
+#   - Matcha / Paraformer (CDN)  → MODELS[...] tarballs (sensecraft-statics CDN)
+#   - Kokoro (CDN)               → MODELS["en"] tarball
+#   - CustomVoice talker embeds  → pulled at runtime when the CustomVoice profile
+#                                  is selected (HF), since they are not baked here.
+# This is the DEFAULT build target (last stage).
+FROM base AS final-slim

@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Seeed Local Voice · 实时 ASR</title>
+<style>
+  :root {
+    --bg: #f3f7ec;
+    --panel: #ffffff;
+    --line: #e3ead4;
+    --line-soft: #eef2e3;
+    --ink: #1f2a17;
+    --ink-soft: #6b7560;
+    --ink-faint: #99a08e;
+    --accent: #6fa83a;
+    --accent-soft: #d9e9c2;
+    --accent-ink: #355013;
+    --tag-user: #7bb547;
+    --tag-event: #2f3a25;
+    --partial: #9aa692;
+    --bad: #c0392b;
+    --warn: #b8861f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+                 "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  header.bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand .logo {
+    width: 44px; height: 44px;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+    letter-spacing: 0.5px;
+  }
+  .brand h1 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+  }
+  .brand .sub {
+    color: var(--ink-soft);
+    font-size: 12.5px;
+    margin-top: 2px;
+  }
+  .controls { display: flex; align-items: center; gap: 14px; }
+  .status { font-size: 13px; color: var(--ink-soft); display: flex; align-items: center; gap: 6px; }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; background: #c0392b; box-shadow: 0 0 0 3px #f0d6d2; }
+  .status.connected .dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .status.connecting .dot { background: var(--warn); box-shadow: 0 0 0 3px #f6e8c5; }
+  input.url {
+    width: 320px;
+    padding: 8px 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--ink);
+  }
+  button.primary {
+    border: 2px solid var(--accent);
+    background: #fff;
+    color: var(--accent-ink);
+    font-weight: 600;
+    padding: 7px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13.5px;
+  }
+  button.primary:hover { background: var(--accent-soft); }
+  button.primary[disabled] { opacity: 0.5; cursor: not-allowed; }
+  button.primary.danger { border-color: var(--bad); color: var(--bad); }
+  button.primary.danger:hover { background: #fbe7e3; }
+  .level {
+    width: 90px; height: 10px; border-radius: 5px;
+    background: #e6ecd6; overflow: hidden; border: 1px solid var(--line);
+  }
+  .level-bar {
+    height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), #4a8a25);
+    transition: width 60ms linear;
+  }
+
+  main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 28px 32px 60px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 22px 24px;
+  }
+  .card-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .card-head .left { display: flex; align-items: center; gap: 10px; }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 9px;
+    border-radius: 5px;
+    font-size: 12px;
+    color: #fff;
+    font-weight: 500;
+  }
+  .tag.user { background: var(--tag-user); }
+  .tag.event { background: var(--tag-event); }
+  .card-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+  .card-head .meta { font-size: 12.5px; color: var(--ink-faint); }
+  .events.collapsed { display: none; }
+  .mini-btn {
+    margin-left: 10px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: var(--ink-soft);
+    padding: 2px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .mini-btn:hover { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent); }
+
+  .transcripts {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 240px;
+  }
+  .bubble {
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    padding: 14px 16px;
+    background: #fcfdf9;
+  }
+  .bubble .meta {
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .bubble .text { font-size: 16px; color: var(--ink); }
+  .bubble.partial { background: #f8faf2; border-style: dashed; }
+  .bubble.partial .text { color: var(--partial); }
+  .bubble.partial .text::after {
+    content: "▊";
+    animation: blink 1s steps(1) infinite;
+    margin-left: 2px;
+    color: var(--accent);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .empty {
+    color: var(--ink-faint);
+    text-align: center;
+    padding: 40px 0;
+    font-size: 13.5px;
+  }
+  .empty kbd {
+    display: inline-block;
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+  }
+
+  .events {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
+    max-height: 280px;
+    overflow-y: auto;
+    background: #fafcf4;
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .events .row { display: grid; grid-template-columns: 70px 110px 1fr; gap: 14px; padding: 3px 0; }
+  .events .row .ts { color: var(--ink-faint); }
+  .events .row .ev { color: var(--accent-ink); }
+  .events .row .ev.bad { color: var(--bad); }
+  .events .row .payload { color: var(--ink-soft); white-space: pre-wrap; word-break: break-all; }
+
+  .stats {
+    display: flex;
+    gap: 18px;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+  .stats b { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <div class="logo">SLV</div>
+    <div>
+      <h1>seeed-local-voice · 实时 ASR</h1>
+      <div class="sub">流式语音识别 · 浏览器麦克风直连 SLV WebSocket</div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="status" id="status"><span class="dot"></span><span id="statusText">未连接</span></div>
+    <input id="wsUrl" class="url" spellcheck="false"
+           value="ws://100.111.134.124:8621/asr/stream?language=auto&amp;sample_rate=16000" />
+    <div class="level" title="麦克风音量"><div id="levelBar" class="level-bar"></div></div>
+    <button id="toggleBtn" class="primary">开始录音</button>
+  </div>
+</header>
+
+<main>
+  <section class="card">
+    <div class="card-head">
+      <div class="left">
+        <span class="tag user">用户</span>
+        <h2>你说的话</h2>
+      </div>
+      <div class="meta"><span id="finalCount">0</span> turns · partial <span id="partialCount">0</span></div>
+    </div>
+    <div id="transcripts" class="transcripts">
+      <div class="empty" id="emptyHint">
+        点 <kbd>连接</kbd> → 允许麦克风权限 → 开始说话，识别结果会实时出现在这里。
+      </div>
+    </div>
+    <div class="stats">
+      <div>采样率 <b id="sr">—</b> Hz</div>
+      <div>已发送 <b id="bytesSent">0</b> KB</div>
+      <div>已接收 <b id="bytesRecv">0</b> events</div>
+      <div>会话时长 <b id="dur">0.0</b> s</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <div class="left">
+        <span class="tag event">事件流</span>
+        <h2>原始 WS 日志</h2>
+      </div>
+      <div class="meta">
+        <span id="evCount">0</span> events
+        <button id="eventsToggle" class="mini-btn" type="button">展开</button>
+      </div>
+    </div>
+    <div id="events" class="events collapsed"></div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const statusEl = $("status");
+  const statusText = $("statusText");
+  const toggleBtn = $("toggleBtn");
+  const wsUrlInput = $("wsUrl");
+  const transcripts = $("transcripts");
+  const emptyHint = $("emptyHint");
+  const eventsEl = $("events");
+  const finalCountEl = $("finalCount");
+  const partialCountEl = $("partialCount");
+  const evCountEl = $("evCount");
+  const srEl = $("sr");
+  const bytesSentEl = $("bytesSent");
+  const bytesRecvEl = $("bytesRecv");
+  const durEl = $("dur");
+
+  const levelBar = $("levelBar");
+
+  let ws = null;
+  let audioCtx = null;
+  let micStream = null;
+  let sourceNode = null;
+  let procNode = null;
+  let recording = false;        // 用户意图：是否在录音
+  let reconnectTimer = null;
+  let reconnectDelay = 500;
+  let wsOpenTs = 0;             // 本次连接 open 时刻，用来判断是否"真稳住了"
+  let reconnectFails = 0;       // 连续 quick-close 次数
+  let startTs = 0;
+  let partialBubble = null;
+  let finalCount = 0;
+  let partialCount = 0;
+  let evCount = 0;
+  let bytesSent = 0;
+  let timerId = null;
+  const TARGET_SR = 16000;
+
+  function setStatus(state, text) {
+    statusEl.classList.remove("connected", "connecting");
+    if (state) statusEl.classList.add(state);
+    statusText.textContent = text;
+  }
+  function fmtTs(d = new Date()) {
+    const p = n => String(n).padStart(2, "0");
+    return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  }
+  function logEvent(kind, payload, bad = false) {
+    evCount++;
+    evCountEl.textContent = evCount;
+    bytesRecvEl.textContent = evCount;
+    const row = document.createElement("div");
+    row.className = "row";
+    const ts = document.createElement("div"); ts.className = "ts"; ts.textContent = fmtTs();
+    const ev = document.createElement("div"); ev.className = "ev" + (bad ? " bad" : ""); ev.textContent = kind;
+    const pl = document.createElement("div"); pl.className = "payload"; pl.textContent = payload;
+    row.append(ts, ev, pl);
+    eventsEl.appendChild(row);
+    while (eventsEl.children.length > 400) eventsEl.removeChild(eventsEl.firstChild);
+    eventsEl.scrollTop = eventsEl.scrollHeight;
+  }
+  function clearEmpty() {
+    if (emptyHint && emptyHint.parentNode) emptyHint.remove();
+  }
+  function upsertPartial(text) {
+    clearEmpty();
+    if (!partialBubble) {
+      partialBubble = document.createElement("div");
+      partialBubble.className = "bubble partial";
+      const meta = document.createElement("div"); meta.className = "meta"; meta.textContent = `ASR partial ${fmtTs()}`;
+      const t = document.createElement("div"); t.className = "text"; t.textContent = text;
+      partialBubble.append(meta, t);
+      transcripts.appendChild(partialBubble);
+    } else {
+      partialBubble.querySelector(".text").textContent = text;
+    }
+    partialCount++;
+    partialCountEl.textContent = partialCount;
+    transcripts.scrollTop = transcripts.scrollHeight;
+  }
+  function commitFinal(text, language) {
+    clearEmpty();
+    if (partialBubble) { partialBubble.remove(); partialBubble = null; }
+    if (!text || !text.trim()) return;
+    const b = document.createElement("div");
+    b.className = "bubble";
+    const meta = document.createElement("div"); meta.className = "meta";
+    meta.textContent = `ASR ${fmtTs()}` + (language ? ` · ${language}` : "");
+    const t = document.createElement("div"); t.className = "text"; t.textContent = text;
+    b.append(meta, t);
+    transcripts.appendChild(b);
+    finalCount++;
+    finalCountEl.textContent = finalCount;
+    transcripts.scrollTop = transcripts.scrollHeight;
+  }
+
+  function floatToInt16(f32) {
+    const out = new Int16Array(f32.length);
+    for (let i = 0; i < f32.length; i++) {
+      const s = Math.max(-1, Math.min(1, f32[i]));
+      out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    return out;
+  }
+
+  function resampleTo16k(f32, srcRate) {
+    if (srcRate === TARGET_SR) return f32;
+    const ratio = srcRate / TARGET_SR;
+    const outLen = Math.floor(f32.length / ratio);
+    const out = new Float32Array(outLen);
+    for (let i = 0; i < outLen; i++) {
+      const idx = i * ratio;
+      const i0 = Math.floor(idx);
+      const i1 = Math.min(i0 + 1, f32.length - 1);
+      const frac = idx - i0;
+      out[i] = f32[i0] * (1 - frac) + f32[i1] * frac;
+    }
+    return out;
+  }
+
+  async function startRecording() {
+    if (recording) return;
+    toggleBtn.disabled = true;
+    setStatus("connecting", "请求麦克风权限...");
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+    } catch (e) {
+      setStatus(null, "麦克风被拒绝");
+      toggleBtn.disabled = false;
+      logEvent("error", "getUserMedia: " + e.message, true);
+      return;
+    }
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    srEl.textContent = `${audioCtx.sampleRate} → ${TARGET_SR}`;
+    startMicPump();
+
+    recording = true;
+    startTs = performance.now();
+    reconnectDelay = 500;
+    toggleBtn.textContent = "停止录音";
+    toggleBtn.classList.add("danger");
+    toggleBtn.disabled = false;
+    timerId = setInterval(() => {
+      durEl.textContent = ((performance.now() - startTs) / 1000).toFixed(1);
+    }, 200);
+    connectWs();
+  }
+
+  function connectWs() {
+    if (!recording) return;
+    if (ws) { gracefulCloseWs(); }   // never overlap two sockets
+    const url = wsUrlInput.value.trim();
+    if (!url) { logEvent("error", "WS URL 为空", true); return; }
+    setStatus("connecting", "连接中...");
+    wsOpenTs = 0;
+    try {
+      ws = new WebSocket(url);
+      ws.binaryType = "arraybuffer";
+    } catch (e) {
+      logEvent("error", e.message, true);
+      stopRecording();
+      return;
+    }
+    ws.onopen = () => {
+      setStatus("connected", "录音中");
+      wsOpenTs = performance.now();
+      logEvent("open", url);
+    };
+    ws.onmessage = (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); }
+      catch { logEvent("raw", String(ev.data).slice(0, 200)); return; }
+      const type = msg.type || "?";
+      logEvent(type, JSON.stringify(msg));
+      if (type === "partial") upsertPartial(msg.text || "");
+      else if (type === "final") commitFinal(msg.text || "", msg.language || "");
+      else if (type === "reset") { if (partialBubble) { partialBubble.remove(); partialBubble = null; } }
+      else if (type === "error") logEvent("error", msg.error || JSON.stringify(msg), true);
+    };
+    ws.onerror = () => { logEvent("error", "ws error", true); };
+    ws.onclose = (ev) => {
+      const liveMs = wsOpenTs ? (performance.now() - wsOpenTs) : 0;
+      logEvent("close", `code=${ev.code} reason=${ev.reason || ""} live=${liveMs.toFixed(0)}ms`, ev.code !== 1000 && recording);
+      ws = null;
+      if (!recording) { setStatus(null, "未连接"); return; }
+
+      // Safety: if connection never stayed alive ≥ 5s, treat as server-side
+      // problem (rejection / crash). Reconnecting fast in this state causes
+      // a storm that strands session tokens on the server. Hard-stop and let
+      // the user retry manually so we never DDOS our own backend.
+      if (liveMs < 5000) {
+        logEvent("error",
+          `连接仅存活 ${liveMs.toFixed(0)}ms（code=${ev.code}），疑似服务端拒绝/异常，停止重连。请检查 ${wsUrlInput.value} 并手动重试。`,
+          true);
+        stopRecording();
+        return;
+      }
+
+      // Healthy connection that just dropped — single retry after short delay.
+      reconnectFails = 0;
+      reconnectDelay = 500;
+      scheduleReconnect();
+    };
+  }
+
+  function scheduleReconnect() {
+    if (!recording) return;
+    setStatus("connecting", `掉线，${(reconnectDelay/1000).toFixed(1)}s 后重连 (#${reconnectFails})`);
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connectWs();
+    }, reconnectDelay);
+  }
+
+  function startMicPump() {
+    sourceNode = audioCtx.createMediaStreamSource(micStream);
+    procNode = audioCtx.createScriptProcessor(2048, 1, 1);
+    procNode.onaudioprocess = (e) => {
+      const f32 = e.inputBuffer.getChannelData(0);
+      let peak = 0;
+      for (let i = 0; i < f32.length; i++) { const a = Math.abs(f32[i]); if (a > peak) peak = a; }
+      levelBar.style.width = Math.min(100, peak * 140).toFixed(1) + "%";
+      if (!recording || !ws || ws.readyState !== WebSocket.OPEN) return;
+      const ds = resampleTo16k(f32, audioCtx.sampleRate);
+      const pcm = floatToInt16(ds);
+      ws.send(pcm.buffer);
+      bytesSent += pcm.byteLength;
+      bytesSentEl.textContent = (bytesSent / 1024).toFixed(1);
+    };
+    sourceNode.connect(procNode);
+    procNode.connect(audioCtx.destination);
+  }
+
+  function cleanupAudio() {
+    try { if (procNode) procNode.disconnect(); } catch {}
+    try { if (sourceNode) sourceNode.disconnect(); } catch {}
+    try { if (audioCtx) audioCtx.close(); } catch {}
+    if (micStream) micStream.getTracks().forEach(t => t.stop());
+    procNode = sourceNode = audioCtx = micStream = null;
+    levelBar.style.width = "0%";
+  }
+
+  function gracefulCloseWs() {
+    // Critical: send b"" end-of-stream so server's recv loop exits and
+    // releases the session_limiter token. A bare ws.close() can leave the
+    // server handler stuck on `await ws.receive()` if TCP gets RST'd.
+    if (!ws) return;
+    try {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(new ArrayBuffer(0));   // end-of-stream sentinel
+        ws.close(1000, "client stop");
+      } else if (ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+    } catch {}
+    // Detach handlers so a late onclose for the old socket can't trigger
+    // another reconnect or status update after stop.
+    try { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; } catch {}
+    ws = null;
+  }
+
+  function stopRecording() {
+    recording = false;
+    if (timerId) { clearInterval(timerId); timerId = null; }
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    gracefulCloseWs();
+    cleanupAudio();
+    setStatus(null, "未连接");
+    toggleBtn.textContent = "开始录音";
+    toggleBtn.classList.remove("danger");
+    toggleBtn.disabled = false;
+  }
+
+  toggleBtn.addEventListener("click", () => {
+    if (recording) stopRecording(); else startRecording();
+  });
+
+  const eventsToggle = $("eventsToggle");
+  eventsToggle.addEventListener("click", () => {
+    const collapsed = eventsEl.classList.toggle("collapsed");
+    eventsToggle.textContent = collapsed ? "展开" : "收起";
+  });
+
+  // pagehide fires reliably on refresh / tab close / mobile background;
+  // beforeunload alone misses some cases. Both call gracefulCloseWs so the
+  // server gets a proper close frame and the session token is released.
+  function shutdown() { if (recording) stopRecording(); else gracefulCloseWs(); }
+  window.addEventListener("pagehide", shutdown);
+  window.addEventListener("beforeunload", shutdown);
+})();
+</script>
+
+</body>
+</html>

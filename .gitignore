@@ -1,15 +1,126 @@
-build/
-runs/
-.venv/
+# Python
 __pycache__/
 *.pyc
-.cache/
-*.onnx
-*.rknn
-*.rkllm
-*.gguf
-*.weight
-*.pt
-*.pth
-*.wav
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
 
+# Environment
+.env
+
+# Models (downloaded at runtime)
+models/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git worktrees
+.worktrees/
+
+# Runtime bundles copied from device builds or release artifacts.
+deploy/jetson-workers/
+deploy/rk-runtime/
+# RK1828 (RKNN3) runtime: the on-device-built worker binary + librknn3_api.so.
+# Staged build artifacts like deploy/rk-runtime/ — see services/rk1828-llm/BUILD.md
+# for how to rebuild them. The MANIFEST is committed on purpose (deploy/rk-runtime
+# does not, which means nothing records what binary that image expects): it is the
+# only record of the expected sizes/hashes and of which main.cc the worker was
+# built from, so a mismatched staging can be caught instead of silently shipped.
+deploy/rk1828-runtime/*
+!deploy/rk1828-runtime/MANIFEST.json
+deploy/kokoro-artifacts/
+
+# Generated performance artifacts
+bench/perf/__pycache__/
+bench/perf/results/
+bench/parity/results/
+bench/perf/corpus/short/*.wav
+bench/perf/corpus/long/*.wav
+bench/perf/corpus/multilingual/**/*.wav
+
+# Large ASR eval datasets (download on demand)
+tests/asr_real_wav_eval/dev-clean.tar.gz
+tests/asr_real_wav_eval/librispeech/
+
+# TRT engine files (binary, built per-device)
+artifacts/engines/
+artifacts/onnx/
+
+# Local Claude Code session state (settings, worktrees, lock files)
+.claude/
+# Local wheel staging only (scripts/build_voxedge_wheel.sh output). Nothing in
+# here is committed any more -- images install voxedge from PyPI, pinned.
+deploy/wheels/*
+
+# Internal strategy/planning specs — NOT for the public openvoicestream repo.
+# Keep local; backed up via the private voxedge repos instead.
+docs/specs/edge-voice-library-architecture.md
+docs/specs/voxedge-engine-overlay-and-artifacts.md
+docs/specs/voxedge-engine-extraction-inventory.md
+docs/specs/tool-calling-engine-migration.md
+docs/specs/cutover-dockerfile-draft.md
+
+# Engine-concurrency (slot-pool / batch / cohort) IP + private fork-internal
+# implementation specs — the edge-performance moat. Kept private; NOT public.
+docs/specs/asr-n2-phase-b-patches.md
+docs/specs/asr-n4-concurrency-c-optimized.md
+docs/specs/asr-slotpool-d1-impl.md
+docs/specs/asr-worker-concurrency.md
+docs/specs/customvoice-tts-fork-port-handoff.md
+docs/specs/cute-dsl-medium-gemm-bug-investigation.md
+docs/specs/moss-tts-nano-kv-adapter.md
+docs/specs/moss-tts-nano-kv-dtype-abi-fix.md
+docs/specs/moss-tts-nano-paged-kv-cpp.md
+docs/specs/qwen3-asr-tts-batch-concurrency.md
+docs/specs/qwen3-concurrency-architecture.md
+docs/specs/tts-cohort-batch-d2-impl.md
+docs/specs/tts-n2-phase-b-patches.md
+docs/specs/tts-n2-shared-tensor-audit.md
+docs/specs/tts-n2-throughput.md
+docs/specs/tts-worker-cancel-protocol.md
+docs/specs/tts-worker-concurrency.md
+docs/specs/voice-pipeline-concurrency-plan.md
+
+# Internal engine-provisioning / builder design (references fork builder = moat)
+docs/specs/engine-host-coverage-and-builder-sidecar.md
+
+# Backend implementations are the edge-performance moat — they live in the
+# private `voxedge` package (see server/core/asr_backend.py registry), NOT in
+# this public shell. Local backend drafts stay out of git.
+app/backends/
+
+# Large deploy artifacts (built/exported per release, not source)
+deploy/*.tar.gz
+# Device-built v0.9.1 binary staged only long enough for the runtime image to
+# validate the same MOSS worker that the published artifact mount will expose.
+deploy/artifacts/v091-release-gate/
+# Device-built v0.10 candidate runtime binaries are staged only while building
+# a gray image.  Their identities belong in v010-candidate-release-lock.json;
+# the binaries themselves must never be committed.
+deploy/artifacts/v010-candidate-release-gate/
+
+# Throwaway dev/proof drivers
+agent/proof_driver.py
+
+# 本地资格验证产物：脚本、日志、以及 replay-input/ 下上百 MB 的 git bundle。
+# 它们是一次性取证材料，不进版本库（2026-08-08：一次 `git add -A` 曾把 295 个
+# 文件、约 127MB bundle 误提交进 main，只能靠改写历史清掉）。
+validation/
+
+# Local copies of multi-GB model/engine payloads pulled from qualification
+# devices. Their immutable hashes belong in release locks; payload bytes are
+# published to the artifact registry and must never enter git.
+artifacts-local/
+
+# Lamp host-local tools, downloads, caches and validation output.
+.local/
+.pytest_cache/
+deploy/lamp/*.local.env
