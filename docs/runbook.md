@@ -34,24 +34,58 @@ sudo journalctl -u rk182x.service -n 100 --no-pager
 
 ## 3. 构建和启动唯一默认方案
 
-本机已准备的模型位置及复用 RK_LLM V1.1.0 导出的配置见 [模型说明](model-storage.md)。使用本机 Qwen3-4B 时，下列 Compose 命令均需加入 `-f .local/deploy/models.local.yaml`，使服务采用本机配套清单并关闭 LLM 自动下载。
+本机 Qwen3-4B 来自 RK_LLM 的 V1.1.0 导出，已复制到 `.local/data/llm/` 并按原发布清单校验。仓库默认清单对应上游 V1.0.4 导出；两套模型图文件的哈希不同，直接采用默认清单会被完整性检查拒绝。模型位置及来源见 [模型说明](model-storage.md)。
+
+使用本机模型的构建与启动命令是：
+
+```bash
+cd /userdata/EdgeArm
+sudo scripts/compose.sh -f .local/deploy/models.local.yaml up -d --build
+```
+
+| 参数 | 含义 |
+|---|---|
+| `sudo` | 使用管理员权限操作 Docker |
+| `scripts/compose.sh` | 加载项目环境与默认 `deploy/compose.yaml` 的 Compose 包装脚本 |
+| `-f .local/deploy/models.local.yaml` | 在默认配置上合并本机模型配置 |
+| `up` | 创建并启动 speech、llm、agent 三个服务 |
+| `-d` | 在后台运行服务 |
+| `--build` | 启动前构建包含当前源码的容器镜像 |
+
+本机覆盖配置只调整 LLM 的两项设置：
+
+```yaml
+services:
+  llm:
+    environment:
+      RK1828_ARTIFACT_AUTO_DOWNLOAD: "0"
+      RK1828_ARTIFACT_MANIFEST: /opt/llm/models/artifacts.local.json
+```
+
+第一项关闭 LLM 自动下载，使用已准备的四个模型文件；第二项选择与本机导出配套的大小和 SHA256 清单。容器路径 `/opt/llm/models/` 对应主机 `.local/data/llm/`。覆盖配置及 `artifacts.local.json` 均为本机文件，位于 Git 忽略的 `.local/` 目录；新克隆需先准备模型和本机配置。
+
+`--build` 构建软件容器镜像；服务启动后会实际加载模型并开始推理服务初始化。已有的文件校验记录与板端推理验收分别记录。
 
 所有产品镜像均需构建源码 overlay；固定发布镜像仅提供原生运行库基础。当前没有构建、拉取或运行这些镜像，不应直接宣称启动成功。
+
+主机尚无可用 Docker daemon 时，先执行：
 
 ```bash
 sudo scripts/start-docker.sh
 ```
 
-该进程保持前台；另一个终端：
+该进程保持前台，在另一个终端执行下面的启动步骤；已有可用 Docker daemon 时直接执行：
 
 ```bash
+cd /userdata/EdgeArm
 mkdir -p .local/data/{asr,tts,llm,voice-data,agent-state} .local/run/edgearm
 chmod 700 .local/run/edgearm
-sudo scripts/compose.sh build
-sudo scripts/compose.sh up -d
-sudo scripts/compose.sh ps
-sudo scripts/compose.sh logs --tail=100
+sudo scripts/compose.sh -f .local/deploy/models.local.yaml up -d --build
+sudo scripts/compose.sh -f .local/deploy/models.local.yaml ps
+sudo scripts/compose.sh -f .local/deploy/models.local.yaml logs --tail=100
 ```
+
+后续管理这套服务时也合并同一个覆盖配置，例如查看日志、重启或停止时保留 `-f .local/deploy/models.local.yaml`。
 
 构建不依赖手工复制其他平台模型，但需要网络拉取 digest 锁定基础镜像与 Python 包；本轮受限环境未验证网络构建。speech、LLM、agent 内存上限分别为 8/3/1GiB，禁止 swap；加载峰值未知，若不足须先测 RSS/PSS、MemAvailable 和 RK1828 内存，重新分配/降低负载后再验收。LLM 失败启动不自动重试，先排查 proxy/驱动/固件。
 
