@@ -5,7 +5,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 export PATH="$ROOT/.local/bin:$ROOT/.venv/bin:$PATH"
 export TMPDIR="$ROOT/.local/tmp"
-export PYTHONPATH="$ROOT/agent:$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+unset PYTHONHOME
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="$ROOT/agent:$ROOT"
 mkdir -p "$TMPDIR" .local/reports
 .venv/bin/python -m pip check
 dockerd --validate --config-file deploy/docker-daemon.json

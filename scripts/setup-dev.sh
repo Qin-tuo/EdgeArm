@@ -3,6 +3,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1
 mkdir -p .local/tmp .local/cache/pip .local/reports
 mkdir -p .local/data/{asr,tts,llm,voice-data,agent-state}
 export TMPDIR="$ROOT/.local/tmp"

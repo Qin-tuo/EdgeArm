@@ -7,9 +7,12 @@
 ```bash
 scripts/setup-tools.sh
 scripts/setup-dev.sh
+source scripts/activate-env.sh
 scripts/check.sh
 python3 scripts/doctor.py --json
 ```
+
+以后每个终端只需 `cd /userdata/EdgeArm` 并执行 `source scripts/activate-env.sh`。该脚本启用 `.venv`、配置本地控制 socket 和 Silero VAD 路径，并清除 ROS 注入的 `PYTHONPATH`。完整应用依赖下文启动的 speech 和 LLM 服务；环境激活本身不启动这些服务。
 
 Python 语音依赖使用 `deploy/python.lock.txt`，voxedge=0.0.15a1。舵机依赖额外安装：
 
@@ -30,6 +33,8 @@ sudo journalctl -u rk182x.service -n 100 --no-pager
 模型和 Docker 数据放在 /userdata，保留系统与下载峰值空间。确认实际麦克风/扬声器连接和全双工 USB 声卡；禁止用声卡枚举代替音频闭环验证。容器默认只给 agent 声卡设备，机械臂未接入。
 
 ## 3. 构建和启动唯一默认方案
+
+本机已准备的模型位置及复用 RK_LLM V1.1.0 导出的配置见 [模型说明](model-storage.md)。使用本机 Qwen3-4B 时，下列 Compose 命令均需加入 `-f .local/deploy/models.local.yaml`，使服务采用本机配套清单并关闭 LLM 自动下载。
 
 所有产品镜像均需构建源码 overlay；固定发布镜像仅提供原生运行库基础。当前没有构建、拉取或运行这些镜像，不应直接宣称启动成功。
 
