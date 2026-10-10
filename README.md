@@ -1,6 +1,6 @@
 # EdgeArm
 
-EdgeArm 是基于 OpenVoiceStream 的端侧语音机械臂项目，目标硬件为 **RK3588 16GB/128GB + PCIe RK1828 + SO-101 五关节及夹爪 + D435i + 接触传感器**。唯一应用入口是 `voice_so101`。
+EdgeArm 是基于 OpenVoiceStream 的端侧语音机械臂项目，目标硬件为 **RK3588 16GB/128GB + PCIe RK1828 + SO-101 五关节及夹爪 + D435i + 接触传感器**。唯一应用入口是 `edgearm`。
 
 复用上游 agent/server、音频与会话、HTTP/WebSocket、工具注册、插件、执行器和 Rockchip 推理依赖。中文默认链路为 **Silero VAD → Qwen3-ASR（RK3588）→ Qwen3-4B（RK1828）→ Matcha/Vocos TTS**。启动采用按键说话，运动默认关闭。性能、设备驱动、标定和停止行为尚未完成本机实测。
 
@@ -10,7 +10,9 @@ EdgeArm 是基于 OpenVoiceStream 的端侧语音机械臂项目，目标硬件�
 - [软件验证与交付状态](docs/validation.md)
 - [源码、模型与镜像版本锁](deploy/baseline.lock.json)、[上游来源与许可](NOTICE.md)
 
-仓库：[Qin-tuo/EdgeArm](https://github.com/Qin-tuo/EdgeArm)。应用入口 `voice_so101` 与 `ovs_agent` Python 命名空间沿用 OVS 契约。
+仓库：[Qin-tuo/EdgeArm](https://github.com/Qin-tuo/EdgeArm)。应用入口为 `edgearm`，Python 命名空间 `ovs_agent` 沿用 OVS 契约。
+
+本地应用启动：`edgearm run`；显式指定入口：`edgearm run edgearm`。板端配置通过 `--config deploy/agent-config.yaml` 指定。
 
 ## 开发和检查
 
@@ -43,7 +45,7 @@ sudo scripts/compose.sh ps
 
 | 目录 | 职责 |
 |---|---|
-| `agent/ovs_agent/` | OVS 共享语音 runtime 与唯一 `apps/voice_so101` 应用 |
+| `agent/ovs_agent/` | OVS 共享语音 runtime 与唯一 `apps/edgearm` 应用 |
 | `server/` | OVS 语音服务、RK 后端契约、会话与资源管理 |
 | `services/rk1828-llm/` | 本地 OpenAI-compatible LLM 服务 |
 | `configs/profiles/` | 唯一 `rk3588-default` 语音 profile |

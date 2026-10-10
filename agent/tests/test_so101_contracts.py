@@ -10,10 +10,10 @@ from types import SimpleNamespace
 import pytest
 
 from ovs_agent.actuators.base import ActuatorClosed
-from ovs_agent.apps.voice_so101.contracts import Scene, Contact, ObjectCandidate, SensorStore
-from ovs_agent.apps.voice_so101.robot_plugin import SO101Plugin
-from ovs_agent.apps.voice_so101 import so_arm
-from ovs_agent.apps.voice_so101.minimal_so_follower import MinimalSOFollower, MinimalSOFollowerConfig, SO_FOLLOWER_MOTORS
+from ovs_agent.apps.edgearm.contracts import Scene, Contact, ObjectCandidate, SensorStore
+from ovs_agent.apps.edgearm.robot_plugin import SO101Plugin
+from ovs_agent.apps.edgearm import so_arm
+from ovs_agent.apps.edgearm.minimal_so_follower import MinimalSOFollower, MinimalSOFollowerConfig, SO_FOLLOWER_MOTORS
 from ovs_agent.tools.registry import ToolRegistry
 from .test_minimal_so_follower import FakeBus
 

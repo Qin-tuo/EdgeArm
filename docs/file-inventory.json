@@ -6512,7 +6512,7 @@
   ],
   "added_product_paths": [
     "agent/ovs_agent/runtime.py",
-    "agent/ovs_agent/apps/voice_so101/",
+    "agent/ovs_agent/apps/edgearm/",
     "agent/ovs_agent/audio/sounddevice_backend.py",
     "agent/tests/test_so101_contracts.py",
     "server/tests/test_so101_rk_profile.py",
@@ -6534,14 +6534,15 @@
     "directory_moves": {
       "deploy/so101": "deploy",
       "scripts/so101": "scripts",
-      "docs/so101": "docs"
+      "docs/so101": "docs",
+      "agent/ovs_agent/apps/voice_so101": "agent/ovs_agent/apps/edgearm"
     },
     "preserved_interfaces": [
       "ovs_agent Python namespace",
-      "voice_so101 application",
       "OVS protocols",
       "upstream provenance"
     ],
-    "restored_test_fixture": "agent/tests/fixtures/user_input.wav"
+    "restored_test_fixture": "agent/tests/fixtures/user_input.wav",
+    "application_entry": "edgearm"
   }
 }

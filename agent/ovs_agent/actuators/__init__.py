@@ -6,7 +6,7 @@ the observation HTTP server talk to the actuator only through the
 ``Actuator`` ABC. This package holds ONLY the abstraction — the ABC plus a
 ``register_actuator`` / ``create_actuator`` registry. Concrete drivers live
 in the app that owns the hardware (e.g. the SO-ARM driver in
-``apps/voice_so101/so_arm.py``, which self-registers on import). A new motor
+``apps/edgearm/so_arm.py``, which self-registers on import). A new motor
 is therefore a new app, not a change here.
 """
 from .base import Actuator

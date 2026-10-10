@@ -60,5 +60,5 @@ def test_cli_without_yaml_applies_env(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "_default_config_path", lambda name: tmp_path / "missing.yaml")
     monkeypatch.setattr(cli, "_load_app_class", lambda name: _App)
     monkeypatch.setattr(cli, "_setup_logging", lambda level: None)
-    cli.main(["run", "voice_so101"])
+    cli.main(["run", "edgearm"])
     assert seen["budget"] == 1000

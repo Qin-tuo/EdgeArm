@@ -55,9 +55,9 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument(
         "app_name",
         nargs="?",
-        default="voice_so101",
-        choices=["voice_so101"],
-        help="SO-101 product application (default)",
+        default="edgearm",
+        choices=["edgearm"],
+        help="EdgeArm product application (default)",
     )
     p_run.add_argument(
         "--config",

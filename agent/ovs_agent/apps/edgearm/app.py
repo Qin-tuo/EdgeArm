@@ -36,7 +36,7 @@ def _load_persisted_phrases(wake: dict, fallback: list[str]) -> list[str]:
     return fallback
 
 
-class VoiceSO101App(VoiceRuntime):
+class EdgeArmApp(VoiceRuntime):
     """The smallest full-duplex LLM voice application shipped by OVS."""
 
     AUDIO_IO_CLASS = TappedAudioIO
@@ -86,6 +86,6 @@ class VoiceSO101App(VoiceRuntime):
             )
 
 
-App = VoiceSO101App
+App = EdgeArmApp
 
-__all__ = ["App", "VoiceSO101App"]
+__all__ = ["App", "EdgeArmApp"]

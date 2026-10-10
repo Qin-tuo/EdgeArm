@@ -9,6 +9,6 @@ COPY deploy/python.lock.txt /tmp/so101-python.lock.txt
 RUN pip uninstall -y openvoicestream-agent \
     && pip install --no-cache-dir -c /tmp/so101-python.lock.txt -e '/opt/slv/agent[arm]'
 WORKDIR /opt/slv/agent
-CMD ["edgearm", "run", "voice_so101"]
+CMD ["edgearm", "run", "edgearm"]
 LABEL org.opencontainers.image.title="EdgeArm Agent" \
       org.opencontainers.image.source="https://github.com/Qin-tuo/EdgeArm"

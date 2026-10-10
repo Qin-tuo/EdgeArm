@@ -92,7 +92,7 @@
     "container_build": "not_run"
   },
   "product": {
-    "app": "voice_so101",
+    "app": "edgearm",
     "board": "RK3588 16GB/128GB + PCIe RK1828",
     "robot": "SO-101 with gripper",
     "source_images": "Rebuild all source overlays; published bases do not contain product changes.",

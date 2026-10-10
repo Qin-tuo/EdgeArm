@@ -195,7 +195,7 @@ async def test_runtime_source_wakes_and_releases_tap():
 
 
 def test_conversation_registers_runtime_kws_only_for_opt_in(monkeypatch):
-    from ovs_agent.apps.voice_so101 import app as conversation
+    from ovs_agent.apps.edgearm import app as conversation
 
     made = []
 
@@ -210,7 +210,7 @@ def test_conversation_registers_runtime_kws_only_for_opt_in(monkeypatch):
             return True
 
     monkeypatch.setattr(conversation, "RuntimeKwsSource", FakeSource)
-    disabled = conversation.VoiceSO101App(Config(pipeline_mode="wake_word"))
+    disabled = conversation.EdgeArmApp(Config(pipeline_mode="wake_word"))
     assert not any(getattr(p, "name", "") == "runtime_kws" for p in disabled.plugins)
 
     cfg = Config(
@@ -225,7 +225,7 @@ def test_conversation_registers_runtime_kws_only_for_opt_in(monkeypatch):
             }
         },
     )
-    enabled = conversation.VoiceSO101App(cfg)
+    enabled = conversation.EdgeArmApp(cfg)
     assert isinstance(enabled.audio, TappedAudioIO)
     assert any(getattr(p, "name", "") == "runtime_kws" for p in enabled.plugins)
     assert made[0]["phrases"] == ["你好小智", "Hey Seeed"]
@@ -235,7 +235,7 @@ def test_conversation_registers_runtime_kws_only_for_opt_in(monkeypatch):
 
 
 def test_conversation_prefers_persisted_runtime_phrase(monkeypatch, tmp_path):
-    from ovs_agent.apps.voice_so101 import app as conversation
+    from ovs_agent.apps.edgearm import app as conversation
 
     saved = tmp_path / "wakeword.json"
     saved.write_text(json.dumps({"version": 1, "phrases": ["销售助手"]}), encoding="utf-8")
@@ -263,7 +263,7 @@ def test_conversation_prefers_persisted_runtime_phrase(monkeypatch, tmp_path):
             }
         },
     )
-    conversation.VoiceSO101App(cfg)
+    conversation.EdgeArmApp(cfg)
     assert observed[0]["phrases"] == ["销售助手"]
 
 

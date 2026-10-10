@@ -2,7 +2,7 @@
 
 The framework owns only the *abstraction*: the :class:`Actuator` ABC and
 this registry. Concrete drivers live in the app that uses them — e.g. the
-SO-ARM driver ships in ``apps/voice_so101/`` and registers itself via
+SO-ARM driver ships in ``apps/edgearm/`` and registers itself via
 ``register_actuator("so_arm", ...)`` when that app is imported. The
 framework never imports a concrete motor driver, so a new motor is a new
 app, not a change here.
@@ -36,7 +36,7 @@ def register_actuator(
 ) -> None:
     """Register a concrete actuator builder under ``name``.
 
-    Apps call this at import time (e.g. ``apps/voice_so101/so_arm.py``) so the
+    Apps call this at import time (e.g. ``apps/edgearm/so_arm.py``) so the
     framework stays driver-agnostic. Re-registering the same name overrides.
     """
     _REGISTRY[name] = builder

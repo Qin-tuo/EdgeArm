@@ -8,7 +8,7 @@
     "skipped": 2,
     "failed": 0,
     "errors": 0,
-    "duration_s": 71.336,
+    "duration_s": 68.056,
     "skip_reasons": {
       "collection skipped": 1,
       "zh URL spelling needs voxedge>=0.0.15a2 (_to_speakable(language=))": 1
@@ -23,7 +23,7 @@
     "empty_product_directories": 0,
     "shell_syntax": "passed",
     "git_diff_check": "passed",
-    "edgearm_cli": "passed"
+    "edgearm_cli": "passed: default entry, explicit entry and deploy config"
   },
   "test_environment": "ARM64 Python 3.10; local TCP/IPC available; explicit project pytest plugins",
   "hardware_acceptance": false,
@@ -36,6 +36,8 @@
     "scripts": "scripts/",
     "docs": "docs/",
     "empty_directories_removed": 89,
-    "app": "voice_so101"
+    "app": "edgearm",
+    "app_class": "EdgeArmApp",
+    "app_path": "agent/ovs_agent/apps/edgearm/"
   }
 }

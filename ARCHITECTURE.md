@@ -3,7 +3,7 @@
 目标要求来自 [系统架构书](01-so101-rockchip-system-architecture.md)，平台为 RK3588 16GB/128GB + PCIe RK1828。当前源码在 OpenVoiceStream 固定快照上裁剪；没有另建语音框架。
 
 ```text
-USB 音频 → voice_so101 / OVS BaseApp + VoiceRuntime
+USB 音频 → edgearm / OVS BaseApp + VoiceRuntime
                 ├─ ChatMode / Session / ToolRegistry / 音频与停止意图
                 ├─ SO101Plugin → 单一串行 worker → SOArmActuator → MinimalSOFollower → TTL
                 ├─ SensorStore ← RGB-D 感知所有者（待接入 D435i / RKNN2）
@@ -15,7 +15,7 @@ USB 音频 → voice_so101 / OVS BaseApp + VoiceRuntime
 
 ## 复用和裁剪
 
-`runtime.py` 迁自上游 MultiModeApp，保留事件、会话和音频处理，仅注册 ChatMode。`voice_so101/app.py` 复用上游 conversation 的生命周期和可选 KWS 接法。SO 驱动迁自上游 voice_arm，继续使用 Actuator ABC 与工厂注册；修正占位标定、启动力矩、动作限位和取消行为。原应用目录、跨平台部署、其他模型配置与演示已移除。
+`runtime.py` 迁自上游 MultiModeApp，保留事件、会话和音频处理，仅注册 ChatMode。`edgearm/app.py` 复用上游 conversation 的生命周期和可选 KWS 接法。SO 驱动迁自上游 voice_arm，继续使用 Actuator ABC 与工厂注册；修正占位标定、启动力矩、动作限位和取消行为。原应用目录、跨平台部署、其他模型配置与演示已移除。
 
 voxedge 固定 `0.0.15a1`，rkvoice-stream 固定提交，保留第三方内部实现与原始许可。server 的通用协议/能力/健康接口仍沿用上游；产品 ASR/TTS 注册表仅接受 `rk.asr` 和 `rk.tts`，默认 profile 与下载路径仅保留 Qwen3-ASR + Matcha/Vocos。
 

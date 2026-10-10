@@ -18,10 +18,10 @@ compose = json.loads((ROOT / '.local/reports/so101-compose.json').read_text())
 services = compose['services']
 assert set(services) == {'speech', 'llm', 'agent'}
 assert [p.name for p in (ROOT / 'configs/profiles').glob('*.json')] == ['rk3588-default.json']
-assert {p.name for p in (ROOT / 'agent/ovs_agent/apps').iterdir() if p.is_dir() and not p.name.startswith('__')} == {'voice_so101'}
+assert {p.name for p in (ROOT / 'agent/ovs_agent/apps').iterdir() if p.is_dir() and not p.name.startswith('__')} == {'edgearm'}
 assert set(asr_backend._ASR_REGISTRY) == {'rk.asr'}
 assert set(tts_backend._TTS_REGISTRY) == {'rk.tts'}
-assert services['agent']['command'][2] == 'voice_so101'
+assert services['agent']['command'][2] == 'edgearm'
 assert services['speech']['environment']['OVS_MAX_CONCURRENT_SESSIONS'] == '1'
 assert services['agent']['environment']['OVS_DEBUG_DASHBOARD_BIND'] == '127.0.0.1'
 assert services['llm']['environment']['RK1828_MAX_CONTEXT'] == '2048'
@@ -35,14 +35,14 @@ for path, expected in lock['model_manifests_sha256'].items():
 for path, spec in lock['submodules'].items():
     actual = subprocess.check_output(['git', '-C', str(ROOT / path), 'rev-parse', 'HEAD'], text=True).strip()
     assert actual == spec['commit'], path
-for path in ['deploy/agent-config.yaml', 'agent/ovs_agent/apps/voice_so101/config.yaml']:
+for path in ['deploy/agent-config.yaml', 'agent/ovs_agent/apps/edgearm/config.yaml']:
     config = load_config(ROOT / path)
     assert config.llm_backend == 'openai_compat' and config.llm_base_url == 'http://127.0.0.1:1828/v1'
     assert config.llm_model == 'Qwen3-4B' and config.barge_in_enabled is False
     assert config.pipeline_mode == 'push_to_talk' and config.metadata['robot']['enabled'] is False
     assert config.tools_enabled and config.tools_max_iterations == 3
     assert set(config.tools_default_allowlist) == {'robot_query', 'robot_grasp_place', 'robot_cancel'}
-    app = _load_app_class('voice_so101')(config)
+    app = _load_app_class('edgearm')(config)
     assert app._client_vad is not None and app._client_vad.name == 'silero'
     assert app._client_vad.is_speech(b'\x00\x00' * 512) is False
     assert app.robot.arm is None

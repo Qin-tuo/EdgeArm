@@ -6,7 +6,7 @@
 |---|---|---|
 | 保留 | server 会话、WebSocket/HTTP、VAD、ASR/TTS、profile、资源仲裁、健康检查 | 单板语音闭环 |
 | 保留 | agent BaseApp、音频、会话、ChatMode、工具注册/执行、插件、停止意图 | 沿用 OVS 契约，不复制会话框架 |
-| 复用并迁移 | conversation/MultiModeApp 的共享会话；MinimalSOFollower/SOArmActuator | 迁入共享 runtime 和 voice_so101，删除旧应用入口 |
+| 复用并迁移 | conversation/MultiModeApp 的共享会话；MinimalSOFollower/SOArmActuator | 迁入共享 runtime 和 edgearm，删除旧应用入口 |
 | 保留 | RKNN2/RKLLM 语音、Matcha/Vocos、RK1828 本地 LLM | 唯一默认板端方案 |
 | 保留 | rkvoice-stream 固定子模块、voxedge 发布依赖、LICENSE 与来源 | 第三方依赖保持原版本，不在产品仓库裁剪其内部实现 |
 | 移除 | Jetson/RPi/Hailo/RK3576 部署与模型配置、翻译/字幕/家居/陪伴/reBot 应用 | 不在目标硬件和产品范围 |
@@ -17,7 +17,7 @@
 ## 已执行的裁剪顺序
 
 1. 记录完整文件裁剪清单与上游版本。
-2. 迁移语音共享实现和 SO 驱动，形成唯一 voice_so101 入口。
+2. 迁移语音共享实现和 SO 驱动，形成唯一 edgearm 入口。
 3. 校正启动力矩/占位标定行为，定义感知、接触、任务与取消契约。
 4. 收敛依赖、profile、板端 Compose 和构建路径，再删除清单中的无关内容。
 5. 验证导入、配置、会话、工具与执行器契约，交付启动和剩余工作说明。

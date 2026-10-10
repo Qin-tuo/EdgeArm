@@ -1,6 +1,6 @@
 # EdgeArm 软件交付与验证
 
-2026-10-10：项目更名为 EdgeArm，部署、脚本、项目文档分别集中到 `deploy/`、`scripts/`、`docs/`。清理 89 个空目录和两个无用文件，恢复保留的真实语音测试样本。项目 CLI 为 `edgearm`，Python 命名空间和唯一应用继续使用 `ovs_agent` / `voice_so101`。
+2026-10-10：项目更名为 EdgeArm，部署、脚本、项目文档分别集中到 `deploy/`、`scripts/`、`docs/`。清理 89 个空目录和两个无用文件，恢复保留的真实语音测试样本。项目 CLI 为 `edgearm`，Python 命名空间继续使用 `ovs_agent`；唯一应用入口也改为 `edgearm`，类名为 `EdgeArmApp`，源码位于 `agent/ovs_agent/apps/edgearm/`。
 
 `scripts/check.sh` 正常退出：**1214 项通过、2 项跳过、0 失败**，保留 5 条上游弃用告警；详见 [检查记录](software-checks.json)。同时通过 CLI、依赖、Compose、锁、导入、文件清单、文档链接、Shell 语法及 `git diff --check`。产品目录中无空文件夹；Git、虚拟环境、本地状态和原始依赖内部不属于清理范围。
 

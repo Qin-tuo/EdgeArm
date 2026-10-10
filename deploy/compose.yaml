@@ -74,7 +74,7 @@ services:
     depends_on:
       speech: {condition: service_healthy}
       llm: {condition: service_healthy}
-    command: [edgearm, run, voice_so101, --config, /opt/voice/config/agent-config.yaml]
+    command: [edgearm, run, edgearm, --config, /opt/voice/config/agent-config.yaml]
     device_cgroup_rules: ["c 116:* rwm"]
     group_add: ["29"]
     volumes:

@@ -4,7 +4,7 @@
   multi-consumer capture taps + multi-channel mic downmix (reSpeaker).
 - :mod:`.devices`: PortAudio device discovery (reSpeaker auto-select).
 
-These are optional add-ons used by ``apps.voice_so101``; importing this
+These are optional add-ons used by ``apps.edgearm``; importing this
 package does not pull in ``sounddevice``/``pyaudio`` until a submodule is
 actually imported.
 """
