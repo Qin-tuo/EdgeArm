@@ -82,7 +82,7 @@ services:
       - ./agent-config.yaml:/opt/voice/config/agent-config.yaml:ro
       - ./audio_profiles.yaml:/opt/voice/config/audio_profiles.yaml:ro
       - ${EDGEARM_DATA_ROOT:?}/agent-state:/var/lib/edgearm
-      - ${EDGEARM_REPO_ROOT:?}/.local/run/edgearm:/run/so101
+      - ${EDGEARM_REPO_ROOT:?}/.local/run/edgearm:/run/edgearm
     environment:
       CONFIG_DIR: /opt/voice/config
       EDGEARM_AUDIO_INPUT: ${EDGEARM_AUDIO_INPUT:-auto}
