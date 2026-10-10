@@ -1,6 +1,29 @@
-# EdgeArm
+<p align="center">
+  <img src="media/logo.png" alt="EdgeArm" width="200">
+</p>
 
-**RK3588 · RK1828 · SO-101 — 本地语音交互与机械臂任务控制**
+<h1 align="center">EdgeArm</h1>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/Python-3.10%2B-green.svg" alt="Python: 3.10+">
+  <img src="https://img.shields.io/badge/Platform-RK3588%20%7C%20RK1828-orange.svg" alt="Platform: RK3588 / RK1828">
+  <br>
+  <img src="https://img.shields.io/badge/ASR-Qwen3--ASR-2f80ed.svg" alt="ASR: Qwen3-ASR">
+  <img src="https://img.shields.io/badge/LLM-Qwen3--4B-8b5cf6.svg" alt="LLM: Qwen3-4B">
+  <img src="https://img.shields.io/badge/TTS-Matcha%20%7C%20Vocos-f97316.svg" alt="TTS: Matcha / Vocos">
+  <img src="https://img.shields.io/badge/Arm-SO--101-14b8a6.svg" alt="Arm: SO-101">
+</p>
+
+<p align="center">
+  Qwen3-ASR · Qwen3-4B · Matcha/Vocos — <strong>本地推理 · 按键说话 · SO-101 任务接口</strong>
+</p>
+
+<!-- TODO: 完成板端语音闭环验收后，录制约 15 秒的真实演示 GIF：
+     1. 展示服务健康状态和调试页面。
+     2. 按键说话，展示中文识别、LLM 回复和语音播放。
+     3. 展示 robot_query 状态查询；机械臂动作在完成实机验收后录制。
+     演示和延迟数据以本机实录为准。 -->
 
 EdgeArm 面向 RK3588 主板、PCIe RK1828 加速卡和 SO-101 机械臂，将语音识别、对话、语音合成与机器人任务接口放在同一台设备上。项目基于 [OpenVoiceStream](https://github.com/Seeed-Solution/openvoicestream)，复用其语音服务、会话、音频和工具执行框架，Rockchip 语音推理由固定版本的 [rkvoice-stream](https://github.com/suharvest/rkvoice-stream) 提供。
 
@@ -260,6 +283,7 @@ EdgeArm/
 ├── deploy/                 # Compose、Dockerfile、配置与版本锁
 ├── scripts/                # 环境、检查、诊断及操作入口
 ├── docs/                   # 协议、部署、模型与验证文档
+├── media/                  # README Logo；SVG 源文件与 PNG
 ├── third_party/rkvoice-stream/  # 固定提交的 Rockchip 依赖
 ├── tests/                  # 产品契约测试；各组件另有 tests/
 └── .local/                 # 本机模型、工具、状态和报告，不提交 Git

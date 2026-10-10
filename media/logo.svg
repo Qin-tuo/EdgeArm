@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">EdgeArm</title>
+  <desc id="desc">A cyan articulated robot arm beside a violet voice waveform on a dark rounded square.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16263d"/>
+      <stop offset="1" stop-color="#0b1220"/>
+    </linearGradient>
+    <linearGradient id="arm" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#5eead4"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="248" height="248" rx="58" fill="url(#background)"/>
+  <rect x="5" y="5" width="246" height="246" rx="57" fill="none" stroke="#31435d" stroke-opacity=".65"/>
+  <circle cx="133" cy="125" r="85" fill="none" stroke="#31435d" stroke-width="1.5" stroke-dasharray="3 9"/>
+  <g fill="none" stroke="#a78bfa" stroke-width="6" stroke-linecap="round">
+    <path d="M40 107v19 M52 95v43 M64 103v27"/>
+  </g>
+  <path d="M134 184v-29l-40-28 34-53 45 28" fill="none" stroke="url(#arm)" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#0f1b2d" stroke="#c8faf0" stroke-width="5">
+    <circle cx="134" cy="155" r="11"/>
+    <circle cx="94" cy="127" r="11"/>
+    <circle cx="128" cy="74" r="11"/>
+  </g>
+  <path d="m173 102 12-8 17 8 M173 102l-1 15 17 13" fill="none" stroke="#5eead4" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="173" cy="102" r="7" fill="#c8faf0"/>
+  <rect x="105" y="179" width="58" height="17" rx="7" fill="#22d3ee"/>
+  <path d="M87 201h94" fill="none" stroke="#c8faf0" stroke-width="7" stroke-linecap="round"/>
+</svg>
