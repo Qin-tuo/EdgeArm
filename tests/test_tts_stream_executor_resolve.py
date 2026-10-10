@@ -106,13 +106,13 @@ def test_executor_falls_back_to_capability_when_no_env(monkeypatch):
         profile_loader,
         "current_profile",
         lambda: {
-            "tts_backend": "jetson.matcha_trt",
-            "asr_backend": "jetson.paraformer_trt",
+            "tts_backend": "rk.tts",
+            "asr_backend": "rk.asr",
         },
     )
-    _patch_tts_service(monkeypatch, is_ready=True, name="jetson.matcha_trt.fp16")
+    _patch_tts_service(monkeypatch, is_ready=True, name="rk.matcha_rknn")
     n, name, src = appmod._resolve_tts_stream_max_workers()
-    assert n == 2
+    assert n == 1
     assert src == "concurrency_capability"
 
 
@@ -124,13 +124,13 @@ def test_executor_env_clamped_to_capability(monkeypatch, caplog):
         profile_loader,
         "current_profile",
         lambda: {
-            "tts_backend": "jetson.matcha_trt",
-            "asr_backend": "jetson.paraformer_trt",
+            "tts_backend": "rk.tts",
+            "asr_backend": "rk.asr",
         },
     )
-    _patch_tts_service(monkeypatch, is_ready=True, name="jetson.matcha_trt.fp16")
+    _patch_tts_service(monkeypatch, is_ready=True, name="rk.matcha_rknn")
     n, _, _ = appmod._resolve_tts_stream_max_workers()
-    assert n == 2, f"expected clamp to backend ceiling 2, got {n}"
+    assert n == 1, f"expected clamp to RK backend ceiling 1, got {n}"
 
 
 def test_executor_no_change_when_global_equals_backend_specific(monkeypatch):

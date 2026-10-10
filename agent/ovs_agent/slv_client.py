@@ -495,13 +495,9 @@ class SLVClient:
     # slower; cover up to ~1.75s of contention before giving up.
     _RECONNECT_BACKOFFS = (0.25, 0.5, 1.0)
 
-    # Idle keepalive cadence. Sized against the TIGHTEST deployed
-    # OVS_V2V_IDLE_TIMEOUT_S, not the server default: the server defaults to
-    # 90s but deploy/docker-compose.jetson-rebot.yml pins 45s (half-open-wedge
-    # mitigation on the arm stack). A cadence chosen against 90s leaves only
-    # 1.5x margin there, so one late ping reaps a live session. 15s keeps 3x
-    # under 45s. The cost of pinging more often is one small JSON frame.
-    # <= 0 disables.
+    # Conservative upstream keepalive cadence. The sole SO-101 deployment
+    # now uses 90s; retain the 45s lower bound checked by deployment tests.
+    # <= 0 disables keepalive.
     _KEEPALIVE_DEFAULT_S = 15.0
     # Tightest OVS_V2V_IDLE_TIMEOUT_S configured anywhere in this repo. Pinned
     # by tests so lowering that env below this value (or raising the cadence)

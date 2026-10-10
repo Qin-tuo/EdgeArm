@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 try:
     import yaml
 except ImportError as exc:  # pragma: no cover
-    raise ImportError("openvoicestream-agent requires PyYAML (uv add pyyaml)") from exc
+    raise ImportError("edgearm-agent requires PyYAML (uv add pyyaml)") from exc
 
 
 _ENV_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)(?::-([^}]*))?\}")
@@ -64,10 +64,10 @@ class Config:
 
     slv_url: str = "ws://localhost:8621/v2v/stream"
     slv_config: dict[str, Any] = field(default_factory=_default_slv_config)
-    llm_backend: str = "edge_llm"
-    llm_base_url: str = "http://localhost:8000/v1"
+    llm_backend: str = "openai_compat"
+    llm_base_url: str = "http://127.0.0.1:1828/v1"
     llm_api_key: str = "EMPTY"
-    llm_model: str = "qwen2.5-3b-instruct"
+    llm_model: str = "Qwen3-4B"
     # Provider-specific reasoning control. ``None`` preserves strict OpenAI
     # compatibility by omitting the field; Qwen/DashScope voice deployments
     # set this to False so hidden thinking does not dominate first-token time.
@@ -401,7 +401,7 @@ class Config:
                 f"got {self.llm_retry_backoff_s!r}"
             )
         # Validate translator backend
-        translator_allowed = {"noop", "ctranslate2"}
+        translator_allowed = {"noop"}
         if self.translator_backend not in translator_allowed:
             raise ValueError(
                 f"translator_backend must be one of {sorted(translator_allowed)}; "

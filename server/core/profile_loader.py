@@ -43,11 +43,7 @@ _OPERATOR_KEY_PREFIXES: tuple[str, ...] = (
 )
 
 
-# Process-level variables that are never configuration, however they appear in a
-# profile. LD_LIBRARY_PATH is the one that matters: the image sets it
-# (Dockerfile.rk) and configs/profiles/jetson-qwen3asr-moss-nx.json deliberately
-# replaces it to point the MOSS worker at its own libs. Treating it as
-# operator-owned would keep the image value and break that profile.
+# Process environment is distinct from operator-owned backend settings.
 _PROCESS_VARS: frozenset[str] = frozenset({
     "PATH", "LD_LIBRARY_PATH", "LD_PRELOAD", "PYTHONPATH", "PYTHONHOME",
     "HOME", "HOSTNAME", "PWD", "SHLVL", "TERM", "TZ", "USER", "SHELL", "LANG",
@@ -265,12 +261,6 @@ def _select_profile_ref() -> str | None:
     """Resolve a profile reference from env (legacy ``apply_profile_from_env`` path)."""
     profile_ref = _env("OVS_PROFILE_JSON") or _env("OVS_PROFILE") or _env("OVS_PROFILE_DEFAULT")
     if not profile_ref:
-        language_mode = os.environ.get("LANGUAGE_MODE", "").strip()
-        if language_mode == "zh_en":
-            profile_ref = "jetson-zh-en"
-        elif language_mode == "multilanguage":
-            profile_ref = "jetson-multilang-highperf"
-    if not profile_ref:
         preset = _env("OVS_PRESET")
         if preset:
             from server.core.profile_selector import resolve_profile_name, UnsupportedPreset
@@ -280,7 +270,7 @@ def _select_profile_ref() -> str | None:
                 logger.error("preset %r not supported on this device: %s", preset, exc)
                 raise
             logger.info("preset %r → profile %r", preset, profile_ref)
-    return profile_ref
+    return profile_ref or "rk3588-default"
 
 
 def _derive_tts_model_id(profile: dict) -> str | None:

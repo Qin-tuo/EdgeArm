@@ -1,7 +1,7 @@
 """Client-side VAD for utterance segmentation.
 
 Two backends:
-- silero: silero-vad onnx (preferred, accurate). pip extra: `silero-vad`
+- silero: the pinned in-tree ONNX asset, executed with CPU onnxruntime
 - energy: pure numpy energy threshold (fallback, always available)
 """
 from __future__ import annotations
@@ -84,6 +84,18 @@ class SileroVAD:
         """
         import importlib.util
         import os
+        from pathlib import Path
+
+        explicit = os.environ.get('OVS_SILERO_VAD_ONNX')
+        if explicit:
+            if not Path(explicit).is_file():
+                raise FileNotFoundError(f"configured Silero asset missing: {explicit}")
+            return explicit
+        # Shared upstream asset in a source checkout; the agent image copies
+        # this same file and sets OVS_SILERO_VAD_ONNX. No torch package needed.
+        source = Path(__file__).resolve().parents[2] / 'server/core/assets/silero_vad.onnx'
+        if source.is_file():
+            return str(source)
 
         spec = importlib.util.find_spec("silero_vad")
         if spec is None or spec.origin is None:

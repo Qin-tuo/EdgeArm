@@ -18,6 +18,12 @@ def _reset(monkeypatch):
     monkeypatch.delenv("OVS_MAX_CONCURRENT_SESSIONS", raising=False)
     session_limiter._reset_for_tests()
     metrics._reset_for_tests()
+    # These endpoint failure tests use synthetic backends, never native model startup.
+    from server.core import profile_loader, model_downloader
+    monkeypatch.setattr(profile_loader, "apply_profile", lambda *a, **kw: {})
+    monkeypatch.setattr(profile_loader, "current_profile", lambda: {})
+    monkeypatch.setattr(model_downloader, "ensure_models", lambda *a, **kw: None)
+    monkeypatch.setenv("LANGUAGE_MODE", "disabled")
 
 
 # ---------------------------------------------------------------------------

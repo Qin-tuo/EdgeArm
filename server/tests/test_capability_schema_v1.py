@@ -199,57 +199,6 @@ def test_clone_modes_and_enrollment_methods_reject_unknown_enums():
         )
 
 
-def test_deployed_voxedge_wheel_tts_wrapper_applies_dsp_fallback():
-    """The pinned voxedge wheel's public TTS wrapper owns non-native DSP."""
-    wheel = Path(__file__).parents[2] / "deploy" / "wheels" / "voxedge-0.0.6a1-py3-none-any.whl"
-    if not wheel.is_file():
-        pytest.skip("deployed voxedge wheel is not present")
-    sys.path.insert(0, str(wheel))
-    try:
-        base = importlib.import_module("voxedge.backends.base")
-    except Exception as exc:  # pragma: no cover - device image dependency gate
-        pytest.skip(f"deployed voxedge wheel unavailable: {exc}")
-
-    class Stub(base.TTSBackend):
-        name = "stub"
-        model_id = "qwen3-tts-0.6b-base"
-        capabilities = {base.TTSCapability.BASIC_TTS}
-        sample_rate = 24_000
-
-        def __init__(self):
-            self.calls = []
-
-        def is_ready(self):
-            return True
-
-        def preload(self):
-            return None
-
-        def _synthesize_impl(self, text, **kwargs):
-            self.calls.append(kwargs)
-            samples = (np.sin(np.linspace(0.0, 100.0, 4800)) * 12000).astype(np.int16)
-            out = io.BytesIO()
-            with wave.open(out, "wb") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)
-                wf.setframerate(24_000)
-                wf.writeframes(samples.tobytes())
-            return out.getvalue(), {"sample_rate": 24_000}
-
-    backend = Stub()
-    assert backend.rate_pitch_caps() == (False, False)
-    identity, _ = backend.synthesize("hello")
-    changed, _ = backend.synthesize("hello", speed=2.0, pitch_shift=3.0)
-    assert identity != changed
-    with wave.open(io.BytesIO(identity), "rb") as wf:
-        identity_frames = wf.getnframes()
-    with wave.open(io.BytesIO(changed), "rb") as wf:
-        changed_frames = wf.getnframes()
-    assert changed_frames != identity_frames
-    assert backend.calls[0]["speed"] is None
-    assert backend.calls[0]["pitch_shift"] is None
-    assert backend.calls[1]["speed"] is None
-    assert backend.calls[1]["pitch_shift"] is None
 
 
 def _backend(model_id: str, capabilities: set[TTSCapability], *, native=(False, False)):

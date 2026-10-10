@@ -1,198 +1,42 @@
-# Architecture
+# RK SO-101 当前软件架构
 
-A map of how the pieces fit, written for someone who just cloned the repo and
-wants to understand, run, and extend it. For feature/endpoint detail see
-[README.md](README.md); for a dev box see [DEVELOP.md](DEVELOP.md); for
-configuration see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+目标要求来自 [系统架构书](01-so101-rockchip-system-architecture.md)，平台为 RK3588 16GB/128GB + PCIe RK1828。当前源码在 OpenVoiceStream 固定快照上裁剪；没有另建语音框架。
 
-## The three repositories
-
-This product is **not** self-contained — it spans three sibling repos plus two
-git submodules. Knowing the split is the single most important onboarding fact.
-
-```
- ┌─────────────────────────────────────────────────────────────────────┐
- │  seeed-local-voice   (THIS repo — the product / deployment)          │
- │                                                                       │
- │   server/   FastAPI service: stable HTTP+WS API, backend registry,   │
- │             hot-reload, admission control, profiles                   │
- │   agent/    ovs_agent: a SEPARATE package + container. Mic→speaker    │
- │             apps (voice_arm, voice_rebot_arm, multi_mode, …) that     │
- │             talk to the server over /v2v/stream                       │
- │   configs/  device profiles (JSON) + leaf composition (YAML)          │
- │   deploy/   per-device Dockerfiles + compose + the voxedge wheel      │
- └───────────────┬──────────────────────────────────────┬──────────────┘
-                 │ imports voxedge.*                     │ submodules
-                 ▼                                       ▼
- ┌──────────────────────────────────────┐   ┌──────────────────────────────┐
- │  voxedge   (../voxedge)              │   │ third_party/                 │
- │  "Pipecat for the edge"             │   │  rkvoice-stream  (RK runtime)│
- │  PURE-PYTHON library, numpy-only    │   │  qwen3-edgellm-jetson        │
- │  core, NO env reads, NO CUDA/torch  │   └──────────────────────────────┘
- │  at import time.                    │
- │   engine/      conversation loop    │
- │   backends/    ASR/TTS/VAD/LLM ABCs │
- │                + jetson/ rk/ sherpa/│
- │   transport/   InProcess + WebSocket│
- │   capabilities/ punctuation, speaker│
- └───────────────┬─────────────────────┘
-                 │ heavy backends (jetson/) shell out to the native engine
-                 ▼
- ┌──────────────────────────────────────────────────────────────────────┐
- │  voxedge-engine   (../voxedge-engine)                                  │
- │  Thin OVERLAY over NVIDIA TensorRT-Edge-LLM (Apache-2.0).             │
- │  UPSTREAM_PIN + addon/ (40 new files) + patches/ (8 themed) +         │
- │  DIVERGENCE.md ledger. Full source is reconstructed at build time;    │
- │  produces the prebuilt TRT worker the jetson backends drive.          │
- └──────────────────────────────────────────────────────────────────────┘
+```text
+USB 音频 → voice_so101 / OVS BaseApp + VoiceRuntime
+                ├─ ChatMode / Session / ToolRegistry / 音频与停止意图
+                ├─ SO101Plugin → 单一串行 worker → SOArmActuator → MinimalSOFollower → TTL
+                ├─ SensorStore ← RGB-D 感知所有者（待接入 D435i / RKNN2）
+                │              ← 接触接口所有者（待选型 ADC/MCU）
+                └─ OVS /v2v/stream → server → RK3588 ASR/VAD/TTS
+                         └─ OpenAI-compatible HTTP → RK1828 本地 LLM / 厂商 proxy
+本地操作客户端 → 0600 Unix socket → 查询 / 停止 / 人工使能
 ```
 
-**Why the split.** voxedge is the reusable, open-core library — it must stay
-`pip install`-able on any laptop with no GPU. The product (this repo) is the
-edge-device-specific shell: deployment, profiles, the agent apps, and the wiring
-that turns env/profile config into voxedge backend instances. The engine repo
-isolates the heavyweight NVIDIA fork so its build/divergence is governed
-separately from product code.
+## 复用和裁剪
 
-## Layer responsibilities (who owns what)
+`runtime.py` 迁自上游 MultiModeApp，保留事件、会话和音频处理，仅注册 ChatMode。`voice_so101/app.py` 复用上游 conversation 的生命周期和可选 KWS 接法。SO 驱动迁自上游 voice_arm，继续使用 Actuator ABC 与工厂注册；修正占位标定、启动力矩、动作限位和取消行为。原应用目录、跨平台部署、其他模型配置与演示已移除。
 
-| Concern | Lives in | Notes |
-|---|---|---|
-| HTTP/WS API contract | `server/main.py` | `/asr/stream`, `/tts/stream`, `/v2v/stream`, admin, health |
-| Backend registry + hot-reload | `server/core/{asr,tts}_backend.py`, `backend_manager.py` | wraps voxedge backends; state machine for live swaps |
-| env/profile → backend config | `server/core/voxedge_backend_config.py` | voxedge itself is env-free; this is the adapter |
-| Conversation orchestration (VAD→ASR→LLM→TTS) | `voxedge/engine/` (`conversation.py` coordinator + `asr_loop`/`audio_dispatcher`/`client_events`/`llm_turn`/`turn_driver`/`tts_sequencer`) | the engine; used by `/v2v` when `OVS_V2V_ENGINE=voxedge`. The LLM↔tool pump itself lives in `turn_driver.run_turn` (shared by both loop modes) |
-| Backend interfaces (ABCs) | `voxedge/backends/base.py` | `ASRBackend`, `TTSBackend`, `VADBackend`, `LLMBackend` |
-| Concrete inference | `voxedge/backends/{jetson,rk,sherpa}/` | lazy-import heavy runtimes; never at module load |
-| Native TRT engine | `voxedge-engine` | prebuilt worker; product/voxedge only drive it |
-| Mic/speaker + app logic | `agent/ovs_agent/apps/*` | each app is a plugin-based client of `/v2v/stream` |
-| Device deployment | `deploy/` + `configs/` | Dockerfiles, compose, profiles |
+voxedge 固定 `0.0.15a1`，rkvoice-stream 固定提交，保留第三方内部实现与原始许可。server 的通用协议/能力/健康接口仍沿用上游；产品 ASR/TTS 注册表仅接受 `rk.asr` 和 `rk.tts`，默认 profile 与下载路径仅保留 Qwen3-ASR + Matcha/Vocos。
 
-### The two processes
+## 所有权和安全状态
 
-There are exactly **two production processes**, and they are decoupled by the
-`/v2v/stream` WebSocket:
+音频由 agent 唯一持有。SO101Plugin 的单线程 executor 是唯一总线调用入口，执行器锁序列化全部串口操作；查询只读取缓存。RGB-D 和 MCU 的未来适配器各持有一个设备，采集/推理在线程或受控 worker 中执行，通过应用事件循环发布结构化样本。SensorStore 每种样本仅保留最新一份，物体最多 32 个，保存序号、采集/到达时间、来源时钟和标定版本；任务使用主机单调时钟。
 
-1. **server** (`uvicorn server.main:app`, port 8000 in-container) — owns the
-   models (ASR/TTS/VAD) for every client.
-2. **agent** (`ovs-agent run <app>`) — owns the device I/O (mic, speaker,
-   wakeword, robot arm) and the tool implementations.
+启动不启动力矩，不生成标定。舵机连接需要完整六电机真实标定；使能另需人工核对后的文件 SHA256。该哈希证明文件身份，不能证明标定测量正确或电机寄存器已匹配。现有适配器只接受 drive_mode=0；非零反向配置需单独适配/验收。驱动沿用上游角度换算：五关节为度，夹爪为百分比，原始范围由标定决定。
 
-**Where the LLM↔tool loop runs is a deployment choice, not a fixed property** —
-two modes, both driven by the *same* pump (`voxedge.engine.turn_driver.run_turn`):
+动作必须包含全部六关节；整段发送前检查有限数值、标定范围和每帧变化/延迟的速度界限。停止先设置线程事件、撤销运动权限，再发当前反馈位置作为保持目标；保留夹爪，不自动释放。稳定反馈只是一项软件观察，尚无物理停止或持物安全验收。断连/故障后需要人工恢复；重启与重新连接不会自动恢复运动权限。
 
-- **server-loop** (`OVS_V2V_SERVER_LOOP=1`, the production robot-arm mode) — the
-  server runs the LLM and tool loop; the agent advertises its tool schemas at
-  session open and executes the `SERVER_TOOL_CALL`s the server dispatches back.
-  The intelligence is server-side, the actuation agent-side — which is why one
-  server can drive both a dumb captioning client and a robot arm.
-- **client-loop** (`OVS_AGENT_SERVER_LOOP` off, the default) — the agent runs the
-  LLM and tool loop itself (bring-your-own LLM / off-box brain) and re-feeds the
-  reply to the server as `CLIENT_TEXT` for TTS.
+## 语义任务接口
 
-Both modes execute the identical multi-round pump; they differ only in which
-process hosts it and in a few agent-private seams (tool allowlist, edge-llm
-prefix-cache, event bus). The agent therefore now imports `voxedge` too (the pump
-is shared) — see [docs/plans/turn-driver-unification.md](docs/plans/turn-driver-unification.md).
+LLM 仅看到 `robot_query`、`robot_grasp_place`、`robot_cancel`。工具拒绝额外/缺失/错误类型参数；任务仅引用当前物体与配置的放置区 ID，不能写任意坐标、轨迹或 shell。运动使能只通过文件权限为 0600 的本地 Unix socket，不作为 LLM 工具。
 
-## How voxedge reaches a device (published, then pinned)
+请求包含 request_id、boot/cancel token 和最多五秒的有效期。最多保存 256 条请求记录，满时拒绝新请求，避免遗忘执行结果后重放动作。取消更新令牌，拒绝迟到工具；任何时刻只接受一个运动任务。accepted、completed、cancelled、rejected、fault 分开；完成必须有动作后新鲜的场景/接触观察以及独立结果验证。当前无默认抓放后端，缺少任一前置条件会拒绝任务。
 
-voxedge is **not vendored** into this repo. It is published to PyPI and every
-image installs an exact pinned version:
+ROS 2、CycloneDDS、ros2_control、MoveIt 保留为后续选项。接入 ROS 时须将串口所有权完全移交，停用直接串口驱动；不得建立第二套语音服务或双驱动。
 
-```
-../voxedge (source)  ──uv build + uv publish──▶  PyPI: voxedge==X.Y.ZaN
-                                                          │
-                        server/requirements.txt  ─pin──────┤
-                        Dockerfile ARG VOXEDGE_VERSION ────┤ pip install
-                                                          ▼
-                                                device image  ──▶  orin-nano / rk3576 / rpi
-```
+## 部署与资源
 
-The pin lives in `server/requirements.txt` and in each device Dockerfile's
-`VOXEDGE_VERSION` build arg; CI installs the same pin. **Publishing a version is
-a release prerequisite** — bump the pin only together with an actual PyPI
-release, or the Docker/CI install fails (deliberately: it must not silently fall
-back to some older or locally-staged build).
+唯一配置为 `deploy/compose.yaml`，三个服务分别构建源码 overlay，基础镜像 digest 固定。语音/LLM 依赖主机 BSP 与厂商 Runtime；初始兼容配置仍使用 privileged 和 /dev 挂载，设备权限缩减必须经过板端验证。agent 默认仅授予声卡访问，不授予机械臂/相机/MCU 设备。
 
-Because a PyPI version can never be reused, a fix after publication needs a new
-version, not a re-upload.
-
-> Mirror caveat: domestic mirrors lag upstream (2026-08-06: voxedge 0.0.7a0 was
-> not yet synced), so the Jetson runtime Dockerfile adds upstream PyPI as a
-> supplementary index rather than relying on the mirror alone.
-
-### The local qualification wheel
-
-`scripts/build_voxedge_wheel.sh` builds a wheel from the sibling `../voxedge`
-checkout into `deploy/wheels/`. That is **only** for pre-publication device
-qualification — trying a voxedge change on real hardware before it is released.
-
-`deploy/wheels/` is entirely git-ignored and the wheel is **never committed**;
-the script says so itself. The `voxedge.BUILD.txt` sidecar records the source
-SHA and whether the tree was dirty, so a qualification build is traceable back
-to a commit.
-
-> This replaced an earlier scheme where the wheel *was* committed and the images
-> installed it from the repo. If you find docs or comments describing that flow,
-> they predate the PyPI migration.
-
-## Run it locally (no GPU)
-
-The whole conversation engine runs on a laptop with mock backends — this is the
-fastest way to understand the dataflow:
-
-```bash
-scripts/dev-setup.sh                                  # editable voxedge + deps
-( cd ../voxedge && pytest voxedge/tests/test_engine_inprocess.py -q )
-```
-
-That test wires the real engine with fakes and asserts the V2V event contract:
-
-```python
-from voxedge.backends.mock import MockASR, MockLLM, MockTTS, MockVAD
-from voxedge.engine import ConversationEngine
-from voxedge.transport import InProcessTransport
-
-engine = ConversationEngine(backends={
-    "asr": MockASR(transcript="hello world"),
-    "vad": MockVAD(), "tts": MockTTS(), "llm": MockLLM(),
-})
-# drive it through InProcessTransport — no CUDA, no sockets, no models
-```
-
-To exercise the HTTP API instead, start the server and use the clients in
-`examples/` (`stream_tts_to_wav.py`, `v2v_tts_only.py`).
-
-## Extending it
-
-- **New ASR/TTS backend** → implement the ABC in `voxedge/backends/<platform>/`
-  (config dataclass + lazy heavy import), declare it in `server/core/{asr,tts}_backend.py`.
-  See `backends/sherpa/asr.py` as the simplest template.
-- **New device profile** → add `configs/profiles/<name>.json`; see
-  [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
-- **New agent app** → add `agent/ovs_agent/apps/<name>/` with an `App` subclass
-  and plugins; `multi_mode` is the reference.
-- **New tool** → register with the engine's `ToolRegistry`; type hints become the
-  JSON schema automatically.
-
-## Known structural debt (tracked, not hidden)
-
-- **`server/core/coordinator.py` & `capability_resolver.py` are migration twins**
-  of `voxedge/engine/{coordinator,capability_resolver}.py`. The server copies are
-  profile-driven and currently wired into the HTTP path; the voxedge copies are
-  the env-free target the product is converging onto. They share a spec
-  (`docs/specs/concurrency-capability-framework.md`). Don't add features to the
-  server copies — see their header comments.
-- **`voxedge/engine/conversation.py` split — substantially landed.** It was
-  ~1600 LOC; the staged split in
-  [docs/plans/conversation-split.md](docs/plans/conversation-split.md) has since
-  extracted `session_state`, `asr_loop`, `audio_dispatcher`, `client_events`,
-  `tts_sequencer`, `llm_turn`, and the provider-agnostic `turn_driver` pump
-  (see [turn-driver-unification.md](docs/plans/turn-driver-unification.md)),
-  leaving `conversation.py` an ~810-LOC coordinator. Each step shipped
-  byte-equivalent through the full perf/behavioral bench gate (the file is shared
-  with the production robot-arm stack).
-- **Config has two layers** — mature flat JSON profiles, plus an optional newer
-  "leaf composition" YAML system gated behind a profile key. See
-  [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+语音 8GiB、LLM 3GiB、agent 1GiB 是初步容器限制，合计 12GiB，禁止 swap 扩容；它们不是实测占用，可能需要根据模型加载峰值调整。RK1828 自身内存单独登记。模型缓存和 Docker 数据位于 /userdata，日志轮转/热运行/NPU 并发仍需实机验收。

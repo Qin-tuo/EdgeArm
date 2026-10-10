@@ -25,10 +25,10 @@ def _silero_available() -> bool:
     boot log (client VAD=silero)."""
     if importlib.util.find_spec("onnxruntime") is None:
         return False
-    spec = importlib.util.find_spec("silero_vad")
-    if spec is None or spec.origin is None:
+    try:
+        onnx = SileroVAD._locate_onnx_model()
+    except (ImportError, FileNotFoundError):
         return False
-    onnx = os.path.join(os.path.dirname(spec.origin), "data", "silero_vad.onnx")
     return os.path.exists(onnx)
 
 
@@ -81,6 +81,7 @@ def test_create_vad_auto_falls_back() -> None:
 
 
 @_silero_skip
+@pytest.mark.skipif(not os.path.exists(_SPEECH_WAV), reason='upstream real-speech WAV fixture not distributed; restore it before speech acceptance')
 def test_silero_vad_speech_vs_silence() -> None:
     """Real speech buffer → detected; silence → not detected."""
     vad = SileroVAD()
@@ -99,6 +100,7 @@ def test_silero_vad_speech_vs_silence() -> None:
 
 
 @_silero_skip
+@pytest.mark.skipif(not os.path.exists(_SPEECH_WAV), reason='upstream real-speech WAV fixture not distributed; restore it before speech acceptance')
 def test_silero_vad_reset_restores_state() -> None:
     """reset() clears recurrent state/context/buffer so detection repeats."""
     vad = SileroVAD()

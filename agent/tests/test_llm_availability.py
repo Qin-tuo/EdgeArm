@@ -414,8 +414,11 @@ async def test_run_loop_increments_unknown_counter(monkeypatch):
     p = _make_plugin(_make_app(), interval_s=0.005)
     # Run a few iterations of the loop.
     task = asyncio.create_task(p.run())
-    # Give the loop time to do >3 probes.
-    await asyncio.sleep(0.2)
+    # Wait for the observable transition, not a fixed scheduling delay.
+    # This verifies bookkeeping rather than wall-clock probe latency.
+    deadline = asyncio.get_running_loop().time() + 2
+    while p.consecutive_unknowns < 3 and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.005)
     p._stopped = True
     if p._wake_evt is not None:
         p._wake_evt.set()

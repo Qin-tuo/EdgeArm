@@ -8,6 +8,7 @@
 # Uses plain curl rather than huggingface_hub: the files are public, and this
 # keeps the image free of a dependency whose only job is one download.
 set -euo pipefail
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 MODEL_DIR="${RK1828_MODEL_DIR:-/opt/llm/models}"
 MANIFEST="${RK1828_ARTIFACT_MANIFEST:-/opt/rk1828-llm/artifacts.json}"
@@ -106,7 +107,7 @@ elif [ -f "${host_rkcp}" ] || [ -f "${host_shim}" ]; then
   log "  RK1828_PREFER_HOST_RUNTIME=0 — running with the bundled client."
 else
   log "WARNING: no host RKNN3 client at ${HOST_LIB_DIR} — using the bundled one."
-  log "  Mount the host's lib dir read-only (see deploy/docker-compose.conversation-rk3588-rk1828.yml)."
+  log "  Mount the host's lib dir read-only (see deploy/compose.yaml)."
   log "  Without it, a host whose rknn3 package is a different generation makes"
   log "  model init block forever with no error — see BUILD.md 'Runtime alignment'."
 fi
@@ -175,13 +176,17 @@ import json;print(' '.join(x['name'] for x in json.load(open('${MANIFEST}'))['fi
 done
 [ "${missing}" = "0" ] || { log "FATAL: incomplete artifact set in ${MODEL_DIR}"; exit 1; }
 
-log "serving ${RK1828_MODEL_ID:-Qwen3-4B} on ${RK1828_HOST:-0.0.0.0}:${RK1828_PORT:-1828}" \
-    "(core_mask=${RK1828_CORE_MASK:-ff} max_context=${RK1828_MAX_CONTEXT:-8192})"
+# Cached/manual artifacts need the same mandatory integrity check as new
+# downloads. Equal byte length alone cannot identify the matched export.
+python3 "${SCRIPT_DIR}/verify_artifacts.py" "${MANIFEST}" "${MODEL_DIR}"
+
+log "serving ${RK1828_MODEL_ID:-Qwen3-4B} on ${RK1828_HOST:-127.0.0.1}:${RK1828_PORT:-1828}" \
+    "(core_mask=${RK1828_CORE_MASK:-ff} max_context=${RK1828_MAX_CONTEXT:-2048})"
 
 exec /opt/venv/bin/python /opt/rk1828-llm/rk1828_llm_server.py \
   --binary /opt/rk1828/rknn_qwen3_demo \
   --model-dir "${MODEL_DIR}" \
   --core-mask "${RK1828_CORE_MASK:-ff}" \
-  --max-context "${RK1828_MAX_CONTEXT:-8192}" \
-  --host "${RK1828_HOST:-0.0.0.0}" \
+  --max-context "${RK1828_MAX_CONTEXT:-2048}" \
+  --host "${RK1828_HOST:-127.0.0.1}" \
   --port "${RK1828_PORT:-1828}"

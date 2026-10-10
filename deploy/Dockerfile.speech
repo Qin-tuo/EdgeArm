@@ -1,0 +1,11 @@
+ARG BASE_IMAGE=sensecraft-missionpack.seeed.cn/solution/openvoicestream@sha256:66c1609280eca64c2e9559f61f047e8d7f593c80d9e136787ac048cdb05fda33
+FROM ${BASE_IMAGE}
+RUN rm -rf /opt/speech/server /opt/speech/configs /opt/speech/deploy/artifacts
+COPY server /opt/speech/server
+COPY configs /opt/speech/configs
+COPY deploy/artifacts/rk_manifest.json /opt/speech/deploy/artifacts/rk_manifest.json
+COPY deploy/python.lock.txt /tmp/so101-python.lock.txt
+RUN pip install --no-cache-dir -c /tmp/so101-python.lock.txt -r /opt/speech/server/requirements.txt
+WORKDIR /opt/speech
+LABEL org.opencontainers.image.title="EdgeArm Speech" \
+      org.opencontainers.image.source="https://github.com/Qin-tuo/EdgeArm"

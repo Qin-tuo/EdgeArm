@@ -1,115 +1,24 @@
 [project]
-name = "openvoicestream-agent"
+name = "edgearm-agent"
 version = "0.2.0"
-description = "Agent-layer client that wires OpenVoiceStream (SLV /v2v/stream) to an OpenAI-compatible LLM."
+description = "EdgeArm SO-101 agent based on OpenVoiceStream"
 requires-python = ">=3.10"
 readme = "README.md"
 dependencies = [
-    "websockets>=12",
-    "sounddevice>=0.4",
-    "numpy>=1.24",
-    "openai>=1.40",
-    "pyyaml>=6.0",
-    "aiohttp>=3.9",
-    "voxedge>=0.0.1a0",
-    # Declared explicitly rather than leaned on as an openai transitive: the
-    # home_assistant app calls Home Assistant's REST API through httpx, and a
-    # transitive dep can be dropped by an upstream release without warning.
-    "httpx>=0.27",
+  "websockets>=12", "sounddevice>=0.4", "numpy>=1.24,<2", "openai>=1.40",
+  "pyyaml>=6.0", "aiohttp>=3.9", "voxedge==0.0.15a1", "onnxruntime==1.22.1",
 ]
-
 [project.optional-dependencies]
-dev = [
-    "pytest>=8",
-    "pytest-asyncio>=0.23",
-]
-silero = [
-    "silero-vad>=5.1",
-    "torch>=2.0",
-]
-# Runtime-compiled Chinese/English keyword spotting.  Kept as an extra so
-# library users that remain in always-on mode do not pull an inference runtime.
-kws = [
-    "sherpa-onnx==1.13.6",
-    # sherpa-onnx-cli text2token imports this lazily but does not declare it.
-    "sentencepiece==0.2.1",
-    "pypinyin==0.55.0",
-]
-# Actuator voice-app (apps/voice_arm): SO-ARM serial driver, openWakeWord
-# keyword spotter, multi-channel mic, and the FastAPI observation server.
-arm = [
-    "fastapi>=0.110",
-    "uvicorn[standard]>=0.27",
-    "openwakeword>=0.6",
-    "feetech-servo-sdk>=1.0",
-    "pyaudio>=0.2.13",
-]
-# reBot B601-DM voice-app (apps/voice_rebot_arm): the reBotArm_control_py
-# SDK + motorbridge + Pinocchio kinematics are NOT pip-published here and
-# are installed inside Dockerfile.rebot-arm (cloned to /opt/rebot). This
-# extra only pulls the shared agent deps the app needs (wakeword, obs HTTP
-# server, mic). Intentionally NO torch / SDK / motorbridge to keep the Mac
-# dev + CI env clean — those live in the container image.
-rebot = [
-    "fastapi>=0.110",
-    "uvicorn[standard]>=0.27",
-    "openwakeword>=0.6",
-    "pyaudio>=0.2.13",
-    # Pinocchio kinematics used by the vendored RebotArm driver (IK/FK).
-    # SDK + motorbridge are container-only (see Dockerfile.rebot-arm).
-    "pin>=3.9.0",
-    # Phase B vision-grasp (torch-free): YOLOE-seg inference + numpy/cv2
-    # post-process. On Mac / CI this CPU wheel is used for tests; on the
-    # Jetson device install ``onnxruntime-gpu`` instead (Jetson Zoo aarch64
-    # wheel — TODO: pin the matching JetPack/CUDA build there, NOT this
-    # PyPI x86/CPU wheel) so the TensorRT/CUDA execution providers light up.
-    # Pinned exactly: onnxruntime 1.23+ declare requires_python>=3.10 but ship
-    # NO cp310 wheel (3.11+ only), so uv resolves to the latest and fails to
-    # install on the Jetson-matching CI/dev Python 3.10. 1.22.1 is the last
-    # release with a real cp310 wheel, so we pin it so CI never drifts onto a
-    # broken version (CI does not use `uv run --locked` because voxedge is an
-    # editable local dep whose version moves independently). Device installs
-    # onnxruntime-gpu separately (see note above) — this CPU pin only affects
-    # Mac/CI test hosts.
-    "onnxruntime==1.22.1",
-    "opencv-python-headless>=4.8",
-    "scipy>=1.10",
-    # Camera SDKs are device-only and NOT pip-published for our targets:
-    #   Orbbec Gemini 2 → pyorbbecsdk2 (build from source on device)
-    #   RealSense       → pyrealsense2 (aarch64 wheel on device)
-    # Both are imported lazily inside the camera drivers so this extra stays
-    # installable on a camera-less Mac / CI host.
-]
-e2e = [
-    "pytest-asyncio>=0.21",
-    "pytest-playwright>=0.4",
-    "aiohttp>=3.9",
-]
-
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+arm = ["feetech-servo-sdk==1.0.0", "pyserial==3.5"]
+kws = ["sherpa-onnx==1.13.6", "sentencepiece==0.2.1", "pypinyin==0.55.0"]
 [project.scripts]
-ovs-agent = "ovs_agent.cli:main"
-
+edgearm = "ovs_agent.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
 [tool.hatch.build.targets.wheel]
 packages = ["ovs_agent"]
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-
-[tool.uv.sources]
-voxedge = { path = "../../voxedge", editable = true }
-
-[dependency-groups]
-dev = [
-    "pytest>=9.0.3",
-    "pytest-asyncio>=1.3.0",
-    # Actuator (voice-arm) tests exercise the FastAPI observation server
-    # via starlette's TestClient (needs httpx).
-    "fastapi>=0.110",
-    "httpx>=0.27",
-    "pytest-rerunfailures>=16.3",
-]

@@ -1,0 +1,14 @@
+ARG BASE_IMAGE=sensecraft-missionpack.seeed.cn/solution/ovs-agent@sha256:cfe9c644496402db0c690e7604866500f1c05af908f0d39b381fb89833485d7b
+FROM ${BASE_IMAGE}
+RUN rm -rf /opt/slv/agent/ovs_agent
+COPY agent/ovs_agent /opt/slv/agent/ovs_agent
+COPY agent/pyproject.toml agent/README.md /opt/slv/agent/
+COPY server/core/assets/silero_vad.onnx /opt/voice/assets/silero_vad.onnx
+ENV OVS_SILERO_VAD_ONNX=/opt/voice/assets/silero_vad.onnx
+COPY deploy/python.lock.txt /tmp/so101-python.lock.txt
+RUN pip uninstall -y openvoicestream-agent \
+    && pip install --no-cache-dir -c /tmp/so101-python.lock.txt -e '/opt/slv/agent[arm]'
+WORKDIR /opt/slv/agent
+CMD ["edgearm", "run", "voice_so101"]
+LABEL org.opencontainers.image.title="EdgeArm Agent" \
+      org.opencontainers.image.source="https://github.com/Qin-tuo/EdgeArm"

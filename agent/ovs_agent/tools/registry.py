@@ -287,6 +287,20 @@ class ToolRegistry:
         t = self._tools.get(name)
         if t is None:
             return {"success": False, "error": f"unknown tool: {name}"}
+        if t.parameters.get("additionalProperties") is False:
+            if not isinstance(arguments, dict):
+                return {"success": False, "error": "arguments must be an object"}
+            properties = t.parameters.get("properties", {})
+            if set(arguments) - set(properties) or set(t.parameters.get("required", [])) - set(arguments):
+                return {"success": False, "error": "unknown or missing tool arguments"}
+            checks = {"string": lambda v: isinstance(v, str),
+                      "number": lambda v: type(v) in (int, float),
+                      "integer": lambda v: type(v) is int,
+                      "boolean": lambda v: type(v) is bool}
+            for key, value in arguments.items():
+                check = checks.get(properties[key].get("type"))
+                if check is not None and not check(value):
+                    return {"success": False, "error": f"invalid argument type: {key}"}
         allowed = set(t.parameters.get("properties", {}).keys())
         clean: dict[str, Any] = {
             k: v for k, v in (arguments or {}).items() if k in allowed

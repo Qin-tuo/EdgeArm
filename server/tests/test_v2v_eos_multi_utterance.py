@@ -625,7 +625,10 @@ def test_abort_cleanup_cannot_cancel_following_generation(
         ws.send_bytes(_silence_pcm16(300))
         fake_asr_backend.finalize_gate.set()
         deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline and len(fake_asr_backend.streams_created) < 2:
+        while time.monotonic() < deadline and (
+            len(fake_asr_backend.streams_created) < 2
+            or not fake_asr_backend.streams_created[1].accepted_chunks
+        ):
             time.sleep(0.01)
         assert len(fake_asr_backend.streams_created) == 2
         assert fake_asr_backend.streams_created[0].cancelled is True

@@ -79,9 +79,8 @@ def test_ping_branch_is_a_pure_no_op():
 def test_keepalive_cadence_leaves_margin_under_watchdog():
     """The cadence is sized against the tightest DEPLOYED idle timeout.
 
-    The server default is 90s, but deploy/docker-compose.jetson-rebot.yml
-    pins OVS_V2V_IDLE_TIMEOUT_S=45 on the arm stack — sizing against 90s
-    would leave only 1.5x margin there.
+    The SO-101 deployment uses 90s and preserves the conservative
+    upstream keepalive lower bound of 45s.
     """
     import pathlib
 

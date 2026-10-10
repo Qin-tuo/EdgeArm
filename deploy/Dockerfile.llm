@@ -1,0 +1,7 @@
+ARG BASE_IMAGE=sensecraft-missionpack.seeed.cn/solution/edge-llm-rk1828@sha256:08b4d4b8d8b0b82beb520c96657707889531b604ea60ce0fb9bcfd137c7e6113
+FROM ${BASE_IMAGE}
+COPY services/rk1828-llm/rk1828_llm_server.py services/rk1828-llm/artifacts.json services/rk1828-llm/entrypoint.sh /opt/rk1828-llm/
+COPY services/rk1828-llm/verify_artifacts.py /opt/rk1828-llm/
+RUN chmod +x /opt/rk1828-llm/entrypoint.sh
+LABEL org.opencontainers.image.title="EdgeArm RK1828 LLM" \
+      org.opencontainers.image.source="https://github.com/Qin-tuo/EdgeArm"

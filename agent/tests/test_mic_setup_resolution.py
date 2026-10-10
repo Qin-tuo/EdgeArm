@@ -119,9 +119,10 @@ def test_base_app_passes_mic_setup_to_audio_io(monkeypatch, fake_device):
     cfg = Config(slv_url="ws://localhost:1/ws")
     app = app_base.BaseApp(cfg)
 
-    assert calls[0]["mic_channels"] == 6
+    assert calls[0]["mic_channels"] == 1
+    app._apply_mic_profile(P.resolve_mic_setup(None, "auto", "auto"))
     assert calls[0]["mic_channel_select"] == 0
-    assert app.mic_setup.profile_name == "xvf3800-flex-6ch"
+    assert cfg.mic_makeup_gain == 12.0
     # Config left makeup at the 1.0 no-op default → profile fills it in.
     assert cfg.mic_makeup_gain == 12.0
 

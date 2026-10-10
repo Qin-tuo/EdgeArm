@@ -612,10 +612,10 @@ async def test_exception_mid_tool_loop_rolls_back_history():
 
 @pytest.mark.asyncio
 async def test_multi_mode_app_class_is_back_compat_dialogue_shim():
-    """The legacy `DialogueApp` import path now resolves to MultiModeApp."""
-    from ovs_agent.apps.multi_mode.app import MultiModeApp
+    """The legacy `DialogueApp` import path now resolves to VoiceRuntime."""
+    from ovs_agent.runtime import VoiceRuntime
 
-    assert DialogueApp is MultiModeApp
+    assert DialogueApp is VoiceRuntime
 
 
 @pytest.mark.asyncio

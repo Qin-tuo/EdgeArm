@@ -168,7 +168,7 @@ class ActionsManager:
         """Returns [{name, description, response_mode?, completion_text?}, ...].
 
         Used by arm_tools.register_arm_tools to thread per-action response
-        mode metadata into the ovs-agent ToolRegistry. Keys other than
+        mode metadata into the edgearm ToolRegistry. Keys other than
         ``name``/``description`` are only present when set in actions.yaml,
         so the upstream framework's default (``response_mode="await"``,
         empty completion_text) still applies when an action omits them.

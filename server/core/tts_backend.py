@@ -150,59 +150,21 @@ class TTSBackend(ABC):
 
 
 _TTS_REGISTRY: Dict[str, Tuple[str, str]] = {
-    "jetson.trt_edge_llm": ("voxedge.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"),
-    "jetson.matcha_trt":   ("voxedge.backends.jetson.matcha_trt",   "MatchaTRTBackend"),
-    "jetson.kokoro_trt":   ("voxedge.backends.jetson.kokoro_trt",   "KokoroTRTBackend"),
-    "jetson.moss_tts_nano":("voxedge.backends.jetson.moss_tts_nano","MossTtsNanoBackend"),
-    "jetson.sparktts":     ("voxedge.backends.jetson.sparktts_trt", "SparkTTSBackend"),
-    "cpu.sherpa":          ("voxedge.backends.sherpa.tts",          "SherpaTTSBackend"),
-    "rk.tts":              ("voxedge.backends.rk.tts",              "RKTTSBackend"),
+    "rk.tts": ("voxedge.backends.rk.tts", "RKTTSBackend"),
 }
 
 
 def _lazy_import(module_path: str, attr: str):
-    mod = importlib.import_module(module_path)
-    return getattr(mod, attr)
+    return getattr(importlib.import_module(module_path), attr)
 
 
 def create_tts_backend() -> TTSBackend:
-    """Factory: instantiate the TTS backend declared by the loaded profile.
-
-    Reads ``tts_backend`` from server.core.profile_loader.current_profile().
-    Raises ValueError when no profile is loaded, the key is missing, or
-    the value is not in the registry.
-    """
+    """Instantiate only the selected RK backend through the original contract."""
     from server.core.profile_loader import current_profile
-    spec = current_profile().get("tts_backend")
-    if not spec:
-        raise ValueError("Profile must declare 'tts_backend'")
+    from server.core.voxedge_backend_config import build_rk_tts_config
+    profile = current_profile()
+    spec = profile.get("tts_backend")
     if spec not in _TTS_REGISTRY:
-        raise ValueError(f"Unknown tts_backend: {spec!r}")
+        raise ValueError(f"Unknown tts_backend: {spec!r}; this product requires rk.tts")
     module_path, cls_name = _TTS_REGISTRY[spec]
-    logger.info("Creating TTS backend %s (%s.%s)", spec, module_path, cls_name)
-    cls = _lazy_import(module_path, cls_name)
-    # voxedge backends are env-free: build their config from env/profile in the
-    # product layer (preserves voxedge's zero-env property). Other specs keep
-    # their legacy os.environ-reading __init__.
-    if spec == "jetson.trt_edge_llm":
-        from server.core.voxedge_backend_config import build_trt_edge_llm_tts_config
-        return cls(config=build_trt_edge_llm_tts_config(profile=current_profile()))
-    if spec == "jetson.matcha_trt":
-        from server.core.voxedge_backend_config import build_matcha_tts_config
-        return cls(config=build_matcha_tts_config(profile=current_profile()))
-    if spec == "jetson.kokoro_trt":
-        from server.core.voxedge_backend_config import build_kokoro_trt_config
-        return cls(config=build_kokoro_trt_config(profile=current_profile()))
-    if spec == "jetson.moss_tts_nano":
-        from server.core.voxedge_backend_config import build_moss_tts_nano_config
-        return cls(config=build_moss_tts_nano_config(profile=current_profile()))
-    if spec == "jetson.sparktts":
-        from server.core.voxedge_backend_config import build_sparktts_trt_config
-        return cls(config=build_sparktts_trt_config(profile=current_profile()))
-    if spec == "cpu.sherpa":
-        from server.core.voxedge_backend_config import build_sherpa_tts_config
-        return cls(config=build_sherpa_tts_config(profile=current_profile()))
-    if spec == "rk.tts":
-        from server.core.voxedge_backend_config import build_rk_tts_config
-        return cls(config=build_rk_tts_config(profile=current_profile()))
-    return cls()
+    return _lazy_import(module_path, cls_name)(config=build_rk_tts_config(profile))

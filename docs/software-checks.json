@@ -1,0 +1,41 @@
+{
+  "date": "2026-10-10",
+  "project": "EdgeArm",
+  "command": "scripts/check.sh",
+  "exit_code": 0,
+  "tests": {
+    "passed": 1214,
+    "skipped": 2,
+    "failed": 0,
+    "errors": 0,
+    "duration_s": 71.336,
+    "skip_reasons": {
+      "collection skipped": 1,
+      "zh URL spelling needs voxedge>=0.0.15a2 (_to_speakable(language=))": 1
+    }
+  },
+  "checks": {
+    "pip_check": "passed",
+    "docker_daemon_config": "passed",
+    "compose_config": "passed",
+    "product_imports_defaults_tools_locks_links": "passed",
+    "file_inventory": "passed",
+    "empty_product_directories": 0,
+    "shell_syntax": "passed",
+    "git_diff_check": "passed",
+    "edgearm_cli": "passed"
+  },
+  "test_environment": "ARM64 Python 3.10; local TCP/IPC available; explicit project pytest plugins",
+  "hardware_acceptance": false,
+  "container_build": "not_run",
+  "external_models_downloaded": false,
+  "bundled_silero_onnx": "CPU silence and retained real-speech fixture tests passed; microphone acceptance not run",
+  "structure": {
+    "root": "EdgeArm",
+    "deploy": "deploy/",
+    "scripts": "scripts/",
+    "docs": "docs/",
+    "empty_directories_removed": 89,
+    "app": "voice_so101"
+  }
+}

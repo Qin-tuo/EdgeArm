@@ -1,0 +1,53 @@
+# SO-101 defaults: one local conversation, push-to-talk, motion disabled.
+slv_url: "${OVS_SLV_URL:-ws://127.0.0.1:8621/v2v/stream}"
+slv_config:
+  asr_language: zh
+  tts_language: zh
+  sample_rate: 16000
+  vad: none
+  multi_utterance: true
+client_vad_backend: silero
+client_vad_speech_min_ms: 200
+client_vad_silence_ms: 600
+client_vad_drive_eos: true
+barge_in_enabled: false
+playback_drain_enabled: true
+playback_drain_timeout_s: 15.0
+llm_backend: openai_compat
+llm_base_url: http://127.0.0.1:1828/v1
+llm_api_key: EMPTY
+llm_model: Qwen3-4B
+llm_enable_thinking: false
+tools_enabled: true
+tools_default_allowlist: [robot_query, robot_grasp_place, robot_cancel]
+tools_max_iterations: 3
+system_prompt: >-
+  你是本地 SO-101 机械臂语音助手，回答简短中文。只能调用已注册的查询、抓放和取消工具。
+  先查询当前物体和放置区ID及请求令牌；目标不明确时先澄清。不得编造坐标、反馈或任务结果。
+  accepted 只表示接受任务，只有 completed 才能播报完成；拒绝、取消和故障如实说明。
+  抓放请求使用查询返回的 boot_id、新的 request_id，expires_at 为查询 now 加三秒。
+audio_input_device: "${EDGEARM_AUDIO_INPUT:-auto}"
+audio_output_device: "${EDGEARM_AUDIO_OUTPUT:-auto}"
+mic_channels: auto
+mic_channel_select: auto
+audio_input_sample_rate: 16000
+audio_output_sample_rate: 24000
+pipeline_mode: push_to_talk
+wake_sources: [http]
+default_mode: chat
+realtime_protocol_version: 1
+log_level: INFO
+metadata:
+  dashboard_port: 18000
+  robot:
+    enabled: false
+    control_socket: "${EDGEARM_CONTROL_SOCKET:-/run/edgearm/control.sock}"
+    sensor_max_age_s: 0.5
+    zones: []
+    actuator:
+      port: /dev/serial/by-id/REPLACE_WITH_REAL_SO101_ADAPTER
+      calibration_dir: /var/lib/edgearm/calibration
+      arm_id: so101
+      calibration_sha256: ""
+      max_speed: 10.0
+      feedback_max_age_s: 0.5

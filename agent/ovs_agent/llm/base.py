@@ -8,7 +8,7 @@ truth for the streaming LLM contract (``stream_events`` → text / tool_call_del
 This used to define a parallel copy of that ABC; voxedge's ``backends/base.py``
 reproduced it (to stay free of the agent package's openai/httpx deps). Now that
 the agent depends on voxedge, the duplicate is collapsed here so both layers
-share one definition. Agent backends (``openai_compat`` / ``edge_llm`` /
+share one definition. Agent backends (``openai_compat`` /
 ``noop``) keep importing ``from .base import LLMBackend, LLMEvent`` unchanged.
 """
 from __future__ import annotations

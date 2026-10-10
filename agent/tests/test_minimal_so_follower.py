@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ovs_agent.apps.voice_arm.minimal_so_follower import (  # noqa: E402
+from ovs_agent.apps.voice_so101.minimal_so_follower import (  # noqa: E402
     REGISTERS,
     RESOLUTION,
     SO_FOLLOWER_MOTORS,
@@ -123,9 +123,9 @@ def test_connect_opens_port_and_loads_calibration(follower):
     # Operating_Mode written for every joint = 6 writes
     op_writes = [w for w in bus.register_writes if w[0] == "Operating_Mode"]
     assert len(op_writes) == 6
-    # Torque cycled: disable_torque then enable_torque during configure
+    # Startup remains torque disabled; local operator enable is separate.
     assert bus.disable_torque_calls >= 1
-    assert bus.enable_torque_calls >= 1
+    assert bus.enable_torque_calls == 0
 
 
 def test_disconnect_disables_torque_when_flag_set(follower):
@@ -183,28 +183,19 @@ def test_send_action_partial_dict_does_not_move_omitted_joints(follower):
     data_name, values = bus.sync_writes[0]
     assert data_name == "Goal_Position"
     assert set(values.keys()) == {"wrist_roll"}
-    # Non-`.pos` keys should be ignored.
+    # Unsupported action fields fail before sending any goal.
     bus.sync_writes.clear()
-    f.send_action({"wrist_roll.pos": 5.0, "shoulder_pan.vel": 999})
-    assert len(bus.sync_writes) == 1
-    _, values = bus.sync_writes[0]
-    assert set(values.keys()) == {"wrist_roll"}
+    with pytest.raises(ValueError, match="unsupported action field"):
+        f.send_action({"wrist_roll.pos": 5.0, "shoulder_pan.vel": 999})
+    assert bus.sync_writes == []
 
 
-def test_send_action_clips_to_range(follower):
-    f, bus = follower
-    f.connect(calibrate=False)
-    bus.sync_writes.clear()
-    # 9999 degrees is way out of bounds → should clip to range_max.
-    f.send_action({"shoulder_pan.pos": 9999.0})
-    _, values = bus.sync_writes[-1]
-    cal = f.calibration["shoulder_pan"]
-    assert values["shoulder_pan"] == cal.range_max
-    # Negative extreme → clipped to range_min.
-    bus.sync_writes.clear()
-    f.send_action({"shoulder_pan.pos": -9999.0})
-    _, values = bus.sync_writes[-1]
-    assert values["shoulder_pan"] == cal.range_min
+def test_send_action_rejects_outside_calibrated_range(follower):
+    robot, bus = follower
+    robot.connect()
+    with pytest.raises(ValueError, match="outside calibrated range"):
+        robot.send_action({"shoulder_pan.pos": 1000.0})
+    assert bus.sync_writes == []
 
 
 def test_observation_features_matches_joint_names():
@@ -245,15 +236,15 @@ def test_calibration_missing_raises_file_not_found(tmp_path: Path):
     assert "ghost_arm" in str(excinfo.value)
 
 
-def test_bus_mock_injectable():
+def test_bus_mock_injectable(cal_dir):
     """MinimalSOFollower must accept any protocol-compatible bus."""
     bus = MagicMock(spec=FakeBus)
     bus.is_connected = False
     bus.sync_read.return_value = {name: 2000 for name in SO_FOLLOWER_MOTORS}
 
-    cfg = MinimalSOFollowerConfig(port="/dev/null", id="voice_arm", use_degrees=True)
+    cfg = MinimalSOFollowerConfig(port="/dev/null", id="voice_arm", calibration_dir=cal_dir, use_degrees=True)
     f = MinimalSOFollower(cfg, bus=bus)
-    # Skip real calibration JSON: trigger the FileNotFoundError fallback path.
+    # Use the explicit calibration fixture; there is no default fallback.
     f.connect(calibrate=False)
     bus.connect.assert_called_once_with(handshake=True)
     # Operating mode written 6 times

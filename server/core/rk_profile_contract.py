@@ -1,14 +1,7 @@
-"""Runtime contract for the production Qwen3-ASR + Matcha RK profiles.
+"""Configuration drift checks for the sole Qwen3-ASR + Matcha RK3588 profile.
 
-The RK compose files used to repeat a subset of profile settings.  Because
-``profile_loader`` intentionally preserves operator-owned environment values,
-those repeated values could silently win over the selected profile (notably
-``NPU_CORE_AUTO`` and an 800 ms endpoint debounce on RK3576).  This module is
-the small, dependency-free contract used by startup/health/capability code to
-make that drift observable.
-
-It deliberately reports only bounded configuration values; no credentials or
-artifact paths are included in the status payload.
+This checks declared settings, not target hardware correctness or performance.
+Only bounded configuration values are included in status payloads.
 """
 
 from __future__ import annotations
@@ -17,38 +10,11 @@ import os
 from typing import Mapping
 
 
-RK_RELEASE_PROFILES = frozenset(
-    {
-        "rk3576-default",
-        "rk3576-multilang",
-        "rk3576-piper",
-        "rk3588-default",
-        "rk3588-multilang",
-    }
-)
+RK_RELEASE_PROFILES = frozenset({"rk3588-default"})
 
 _COMMON_EXPECTED: dict[str, str] = {
     "ASR_MAX_NEW_TOKENS": "64",
-    # Off. The stop ends the final decode at the first sentence terminator, so
-    # an utterance of two sentences came back as its first: "They ship today. Do
-    # you want one?" -> "They ship today."
-    #
-    # Measured 2026-09-21 on both platforms (W8A8; bench/perf/corpus short + long
-    # plus four two-sentence clips, the same audio decoded with the stop on and
-    # off in one process):
-    #                            RK3588 (radxa)        RK3576 (cat-remote)
-    #   two English sentences    71.4/60.0 -> 14.3/0.0  57.1/60.0 -> 0.0/0.0  % WER
-    #   10 single sentences      17.9 -> 17.2           14.0 -> 14.0          % err
-    #   10 long clips            16.7 -> 16.6           16.5 -> 15.9          % err
-    #   garbage / prompt leaks   0 of 24                0 of 24   (stop off)
-    # Every single-sentence decode ends on EOS with the same token count (+-1 on
-    # RK3588, identical on RK3576), so what the stop saved was the EOS token:
-    # 70-90 ms on RK3576, measured in both run orders; on RK3588 it sits inside
-    # the 50-100 ms embed-cache order effect. The redundant Chinese continuation
-    # the 2026-06-02 RK3576 runs reported (zh_short_02) did not reproduce: 16
-    # tokens either way. The stop was adopted on a single-sentence corpus
-    # (docs/perf/qwen3-asr-rk-streaming-ab-20260601.md), where the truncation
-    # cannot show; the long-dictation profile had already turned it off.
+    # Preserve full multi-sentence utterances; actual quality needs board tests.
     "ASR_FINAL_STOP_ON_PUNCT": "0",
     "ASR_FINAL_STOP_MIN_CHARS": "8",
     "ASR_FINAL_STOP_MIN_CHUNKS": "2",
@@ -61,63 +27,15 @@ _COMMON_EXPECTED: dict[str, str] = {
     "QWEN3_ASR_TRUE_PARTIAL_INTERVAL_MS": "1500",
     "QWEN3_ASR_TRUE_PARTIAL_WARMUP": "2",
     "QWEN3_ASR_FRONTEND_EOU_MIN_AUDIO_S": "2.5",
-    # Backend endpoint threshold. MUST stay comfortably above the client-side
-    # VAD silence of the shipped agent (agent-config.yaml:
-    # client_vad_silence_ms: 600) plus the EOS->finalize budget, otherwise the
-    # backend wins the endpoint race and cuts the utterance in half.
-    #
-    # Measured on RK3588 (2026-09-13, bench/parity/v2v_wav_inject.py, 6.33 s clip
-    # with a 1.5 s mid-sentence pause):
-    #   400  ms -> finalize at 2.00 s, first half only (`帮我查一下 N64。`)
-    #   1200 ms -> finalize at 2.80 s, still cut at the pause
-    #   5000 ms -> one 6.80 s segment, single final for the whole clip
-    # The RK Qwen3 backend endpoints on its own webrtcvad in BOTH true_streaming
-    # and chunk_confirm, even when the session declares vad:"none"; there is no
-    # per-session override plumbed through the engine, so this profile value is
-    # the only lever. 1500 ms = 600 ms client VAD + ~500 ms EOS->finalize
-    # budget + ~400 ms margin.
+    # Keep backend endpoint above client silence plus finalize budget.
     "VAD_ENDPOINT_SILENCE_MS": "1500",
     "MATCHA_USE_ORT": "1",
     "MATCHA_MODEL_SEQ_LEN": "80",
     "MATCHA_STREAM_CHUNK_MS": "40",
 }
 
-_PLATFORM_EXPECTED: dict[str, dict[str, str]] = {
-    # RK3576 regressed when the final RKLLM decode was moved to the async
-    # endpoint path; keep its measured synchronous close-out recipe.
-    "rk3576": {
-        "QWEN3_ASR_VAD_FINAL_ASYNC": "0",
-        "MATCHA_MIN_MEL_FRAMES": "96",
-        "VOCOS_FRAMES": "600",
-    },
-    # RK3588 is the platform where async endpoint finalization was measured to
-    # improve dialogue latency.
-    "rk3588": {
-        "QWEN3_ASR_VAD_FINAL_ASYNC": "1",
-        "MATCHA_MIN_MEL_FRAMES": "72",
-        "VOCOS_FRAMES": "256",
-    },
-}
-
-_PROFILE_KEYS = (*_COMMON_EXPECTED, "QWEN3_ASR_VAD_FINAL_ASYNC")
-
-_PIPER_EXPECTED: dict[str, str] = {
-    "TTS_BACKEND": "piper_rknn",
-    "PIPER_MODEL_DIR": "/opt/tts/models/piper",
-    "PIPER_LANGUAGES": "en_US",
-    "PIPER_DEFAULT_LANG": "en_US",
-    "PIPER_SEQ_LEN": "256",
-    "PIPER_CHINESE_FALLBACK": "matcha_rknn",
-    "RK_ARTIFACT_AUTO_DOWNLOAD": "0",
-    "MATCHA_USE_ORT": "1",
-    "MATCHA_MODEL_SEQ_LEN": "80",
-    "MATCHA_MIN_MEL_FRAMES": "96",
-    "MATCHA_STREAM_CHUNK_MS": "40",
-    "VOCOS_FRAMES": "600",
-}
-
-_PIPER_FRONTEND_TOGGLE = "PIPER_ENABLE_FRONTEND_NPU"
-_PIPER_FRONTEND_VALUES = frozenset({"0", "1"})
+_PLATFORM_EXPECTED = {"rk3588": {"QWEN3_ASR_VAD_FINAL_ASYNC": "1", "MATCHA_MIN_MEL_FRAMES": "72", "VOCOS_FRAMES": "256"}}
+_PROFILE_KEYS = (*_COMMON_EXPECTED, "RK_PLATFORM", "QWEN3_ASR_VAD_FINAL_ASYNC", "MATCHA_MIN_MEL_FRAMES", "VOCOS_FRAMES")
 
 
 def _profile_name(profile: Mapping[str, object] | None) -> str:
@@ -127,7 +45,7 @@ def _profile_name(profile: Mapping[str, object] | None) -> str:
 
 
 def is_release_profile(profile: Mapping[str, object] | None) -> bool:
-    """Return whether *profile* is one of the four production Qwen3 RK profiles."""
+    """Return whether *profile* is the selected product profile."""
     return _profile_name(profile) in RK_RELEASE_PROFILES
 
 
@@ -135,8 +53,6 @@ def _device_for(name: str, profile_env: Mapping[str, object], env: Mapping[str, 
     value = profile_env.get("RK_PLATFORM") or env.get("RK_PLATFORM")
     if value:
         return str(value)
-    if name.startswith("rk3576-"):
-        return "rk3576"
     if name.startswith("rk3588-"):
         return "rk3588"
     return None
@@ -148,10 +64,7 @@ def runtime_status(
 ) -> dict[str, object]:
     """Compare a selected RK release profile with the effective process env.
 
-    ``required`` is false for all other profiles so existing Jetson/RPi and
-    legacy RK profiles retain their current contract.  For a release profile,
-    ``verified`` is true only when both the JSON profile and the process env
-    contain the complete, validated true-streaming/NPU/Matcha set.
+    ``verified`` checks JSON/process consistency; it is not a hardware verdict.
     """
     name = _profile_name(profile)
     profile_env_raw = (profile or {}).get("env") or {}
@@ -173,13 +86,9 @@ def runtime_status(
 
     device = _device_for(name, profile_env, actual)
     expected = dict(_COMMON_EXPECTED)
-    expected.update(_PLATFORM_EXPECTED.get(device or "", {}))
-    profile_expected = _PIPER_EXPECTED if name == "rk3576-piper" else {}
-    expected.update(profile_expected)
-    extra_keys = (_PIPER_FRONTEND_TOGGLE,) if name == "rk3576-piper" else ()
-    keys = tuple(
-        dict.fromkeys((*_PROFILE_KEYS, "VOCOS_FRAMES", *profile_expected, *extra_keys))
-    )
+    expected.update(_PLATFORM_EXPECTED["rk3588"])
+    expected["RK_PLATFORM"] = "rk3588"
+    keys = _PROFILE_KEYS
 
     missing_profile = [key for key in keys if str(profile_env.get(key, "")).strip() == ""]
     missing_runtime = [key for key in keys if str(actual.get(key, "")).strip() == ""]
@@ -200,38 +109,6 @@ def runtime_status(
                 "runtime": actual_value,
             }
 
-    if name == "rk3576-piper":
-        # The loader checks this flag literally (``== "1"``); accepting
-        # surrounding whitespace here would report a CPU/NPU mode as verified
-        # while the backend silently took the CPU path.
-        profile_value = str(profile_env.get(_PIPER_FRONTEND_TOGGLE, ""))
-        actual_value = str(actual.get(_PIPER_FRONTEND_TOGGLE, ""))
-        if profile_value and profile_value not in _PIPER_FRONTEND_VALUES:
-            mismatches[_PIPER_FRONTEND_TOGGLE] = {
-                "expected": "0 or 1",
-                "profile": profile_value,
-                "runtime": actual_value,
-            }
-        if actual_value and actual_value not in _PIPER_FRONTEND_VALUES:
-            mismatches[_PIPER_FRONTEND_TOGGLE] = {
-                "expected": (
-                    profile_value
-                    if profile_value in _PIPER_FRONTEND_VALUES
-                    else "0 or 1"
-                ),
-                "profile": profile_value,
-                "runtime": actual_value,
-            }
-        if (
-            profile_value in _PIPER_FRONTEND_VALUES
-            and actual_value in _PIPER_FRONTEND_VALUES
-            and profile_value != actual_value
-        ):
-            mismatches[_PIPER_FRONTEND_TOGGLE] = {
-                "expected": profile_value,
-                "profile": profile_value,
-                "runtime": actual_value,
-            }
     settings = {key: str(actual.get(key, "<missing>")) for key in keys}
     return {
         "required": True,

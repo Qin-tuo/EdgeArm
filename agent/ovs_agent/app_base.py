@@ -54,7 +54,7 @@ from .audio.profiles import resolve_mic_setup
 from .audio_io import AudioIO
 from .config import Config
 from .event_bus import EventBus
-from .llm import EdgeLLMBackend, LLMBackend, LLMStreamError, OpenAICompatBackend, NoopLLM
+from .llm import LLMBackend, LLMStreamError, OpenAICompatBackend, NoopLLM
 from .plugins.llm_availability import LLMUnavailable
 from .session import Session
 from .state import ConvState
@@ -63,7 +63,7 @@ from .state import ConvState
 # (no IO, no model load) so we pay it unconditionally — actual use is
 # gated by config.tools_enabled per turn in app_mode.
 from .tools import default_registry as _default_tool_registry
-from .translator import CTranslate2Translator, NoopTranslator, TranslatorBackend
+from .translator import NoopTranslator, TranslatorBackend
 from .vad import create_vad
 from .slv_client import (
     AssistantTranscriptDelta,
@@ -175,14 +175,6 @@ def _build_llm(config: Config) -> LLMBackend:
     backend = config.llm_backend.lower()
     if backend == "noop":
         return NoopLLM()
-    if backend == "edge_llm":
-        return EdgeLLMBackend(
-            base_url=config.llm_base_url,
-            api_key=config.llm_api_key,
-            model=config.llm_model,
-            retry_on_transient=config.llm_retry_on_transient,
-            retry_backoff_s=config.llm_retry_backoff_s,
-        )
     if backend in ("openai_compat", "openai"):
         return OpenAICompatBackend(
             base_url=config.llm_base_url,
@@ -198,11 +190,6 @@ def _build_translator(config: Config) -> TranslatorBackend:
     backend = config.translator_backend.lower()
     if backend == "noop":
         return NoopTranslator()
-    if backend == "ctranslate2":
-        return CTranslate2Translator(
-            base_url=config.translator_url,
-            timeout=config.translator_timeout_s,
-        )
     raise ValueError(f"Unknown translator_backend: {config.translator_backend!r}")
 
 
@@ -277,6 +264,7 @@ class BaseApp:
             config.audio_input_device,
             channels_cfg=raw_mic_channels,
             channel_select_cfg=raw_mic_channel_select,
+            probe_device=False,
         )
         self._mic_makeup_gain_auto = (
             abs(float(getattr(config, "mic_makeup_gain", 1.0)) - 1.0) < 1e-9
@@ -3565,6 +3553,8 @@ class BaseApp:
             # user asked for quiet, not for more conversation).
             if self._is_stop_intent(full_text):
                 logger.info("stop intent matched: %r", full_text)
+                # Notify execution before waiting for generation/audio cancellation.
+                await self._broadcast("on_user_stop_intent", full_text)
                 if self._llm_turn_task is not None and not self._llm_turn_task.done():
                     self._llm_turn_task.cancel()
                     try:
@@ -3581,7 +3571,6 @@ class BaseApp:
                     pass
                 self._set_state(ConvState.IDLE)
                 self._reset_sleep_timer()
-                await self._broadcast("on_user_stop_intent", full_text)
                 return
             # Spawn the LLM turn as a tracked task so the dispatch loop
             # stays free to handle queued TTSAudio (playback) and

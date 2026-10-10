@@ -150,12 +150,6 @@ class DebugDashboardPlugin(Plugin):
         web_app.router.add_patch("/api/wakeword/runtime", self._api_wakeword_runtime_patch)
         web_app.router.add_post("/api/wakeword/test-tone", self._api_wakeword_test_tone)
         web_app.router.add_post("/api/llm/probe", self._api_llm_probe)
-        web_app.router.add_get(
-            "/api/translator/runtime", self._api_translator_runtime_get
-        )
-        web_app.router.add_patch(
-            "/api/translator/runtime", self._api_translator_runtime_patch
-        )
 
         # Static assets (css/js).
         if _STATIC_DIR.exists():
@@ -1090,7 +1084,7 @@ class DebugDashboardPlugin(Plugin):
     def _persist_runtime_wakeword(self, phrases: list[str]) -> None:
         meta = getattr(getattr(self.app, "config", None), "metadata", {}) or {}
         wake = meta.get("wakeword", {}) or {}
-        path = Path(str(wake.get("state_path") or "/var/lib/ovs-agent/wakeword.json"))
+        path = Path(str(wake.get("state_path") or "/var/lib/edgearm/wakeword.json"))
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(path.name + ".tmp")
         flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
@@ -1220,114 +1214,8 @@ class DebugDashboardPlugin(Plugin):
     # default as fallback). ``backend`` / ``url`` / ``timeout_s`` are
     # set at process start and not hot-swappable here.
 
-    def _build_translator_runtime_payload(self) -> dict[str, Any]:
-        from ..translator.lang_map import supported_target_languages
-        cfg = getattr(self.app, "config", None)
-        backend = "noop"
-        src_lang = "zho_Hans"
-        tgt_lang = "eng_Latn"
-        url = "http://localhost:9001"
-        timeout_s = 5.0
-        if cfg is not None:
-            backend = str(getattr(cfg, "translator_backend", backend))
-            src_lang = str(getattr(cfg, "translator_src_lang", src_lang))
-            tgt_lang = str(getattr(cfg, "translator_tgt_lang", tgt_lang))
-            url = str(getattr(cfg, "translator_url", url))
-            try:
-                timeout_s = float(getattr(cfg, "translator_timeout_s", timeout_s))
-            except Exception:
-                timeout_s = 5.0
-        return {
-            "backend": backend,
-            "src_lang": src_lang,
-            "tgt_lang": tgt_lang,
-            "url": url,
-            "timeout_s": timeout_s,
-            "supported_targets": supported_target_languages(),
-        }
 
-    async def _api_translator_runtime_get(self, request):  # noqa: ANN001
-        from aiohttp import web
-        return web.json_response(self._build_translator_runtime_payload())
 
-    async def _api_translator_runtime_patch(self, request):  # noqa: ANN001
-        import re
-
-        from aiohttp import web
-
-        from ..translator.lang_map import FLORES_DISPLAY_NAMES
-
-        try:
-            body = await request.json()
-        except Exception:
-            return web.json_response(
-                {"ok": False, "error": "bad json"}, status=400
-            )
-        if not isinstance(body, dict):
-            return web.json_response(
-                {"ok": False, "error": "body must be object"}, status=400
-            )
-        if "tgt_lang" not in body:
-            return web.json_response(
-                {"ok": False, "error": "tgt_lang is required"}, status=400
-            )
-        tgt = body["tgt_lang"]
-        if not isinstance(tgt, str) or not re.match(
-            r"^[a-z]{3}_[A-Z][a-z]{3}$", tgt
-        ):
-            return web.json_response(
-                {"ok": False,
-                 "error": "tgt_lang must match NLLB format (e.g. 'eng_Latn')"},
-                status=400,
-            )
-        if tgt not in FLORES_DISPLAY_NAMES:
-            return web.json_response(
-                {"ok": False,
-                 "error": f"tgt_lang {tgt!r} not in supported targets"},
-                status=400,
-            )
-        cfg = getattr(self.app, "config", None)
-        if cfg is None:
-            return web.json_response(
-                {"ok": False, "error": "no config"}, status=500
-            )
-        old = getattr(cfg, "translator_tgt_lang", None)
-        cfg.translator_tgt_lang = tgt
-        # Persist to YAML if we have a source path (same pattern as
-        # _api_agent_settings_post). Restart-survives the runtime swap.
-        persisted = False
-        persist_error: str | None = None
-        src = getattr(cfg, "_source_path", None)
-        if src is not None and old != tgt:
-            try:
-                self._persist_agent_settings_to_yaml(
-                    Path(src), {"translator_tgt_lang": tgt}
-                )
-                persisted = True
-            except Exception as e:  # pragma: no cover - defensive
-                persist_error = str(e)
-                logger.exception("persist translator_tgt_lang failed")
-        logger.info(
-            "translator_tgt_lang switched: %r → %r (persisted=%s)",
-            old, tgt, persisted,
-        )
-        # Broadcast so any subscribed dashboard reflects the change live.
-        bcast_payload: dict[str, Any] = {
-            **self._build_translator_runtime_payload(),
-            "persisted": persisted,
-        }
-        if persist_error is not None:
-            bcast_payload["persist_error"] = persist_error
-        try:
-            await self.app.broadcast(
-                "on_translator_runtime_change", bcast_payload
-            )
-        except Exception:
-            logger.exception("on_translator_runtime_change broadcast failed")
-        resp = {"ok": True, "tgt_lang": tgt, "persisted": persisted}
-        if persist_error is not None:
-            resp["persist_error"] = persist_error
-        return web.json_response(resp)
 
     async def _api_session_history(self, request):  # noqa: ANN001
         from aiohttp import web

@@ -15,6 +15,9 @@ is already healthy / a reconnect is in flight / the close was a 1012 eviction.
 """
 from __future__ import annotations
 
+import pytest
+pytestmark = pytest.mark.network
+
 import asyncio
 import json
 

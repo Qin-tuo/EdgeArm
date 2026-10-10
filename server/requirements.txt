@@ -1,33 +1,11 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 soundfile>=0.12.0
-numpy>=1.24.0
-onnxruntime>=1.20
+numpy>=1.24,<2
+onnxruntime==1.22.1
 python-multipart>=0.0.9
-webrtcvad-wheels>=2.0.14  # VAD for long-audio segmentation (qwen3_asr bug A workaround)
-prometheus_client>=0.20,<1  # Week 2 production hardening: /metrics exposition
-python-json-logger>=2.0,<4  # Week 2 production hardening: structured JSON logging
-huggingface_hub>=0.20  # model-level artifact download; endpoint is pinned by deployment
-voxedge==0.0.15a1  # exact API contract; publication is a release prerequisite
-# 0.0.12a0 is the first release carrying `voxedge.backends.whisper`, which the
-# hailo.whisper / rk.whisper / jetson.whisper_trt specs need. On 0.0.11a0 those
-# profiles raise ModuleNotFoundError at backend creation, and CI cannot catch
-# it — CI resolves voxedge from the sibling checkout, not from this pin.
-# sherpa-onnx: installed from CUDA wheel in Dockerfile
-#
-# voxedge lives in its own repo. Development may install the sibling checkout;
-# release images install this exact published version. If it is not public yet,
-# the Docker/CI gate fails clearly instead of falling back to a stale local wheel.
-#
-# Do NOT switch this to an editable/sibling install for deployment: the spark
-# image did that and the pin became decorative — it ran 0.0.5a0 for a month
-# while this file said 0.0.9a0, and `pip show` reported the stale version with
-# no sign the two disagreed. 0.0.11a0 carried the SenseVoice offline-path work
-# (resident device buffers, valid-frame D2H, admission-ceiling capability);
-# 0.0.12a0 adds the Whisper backend and the shared segment/join modules the RK
-# and Jetson paths now import from.
-#
-# This pin and the Dockerfile's ARG VOXEDGE_VERSION must move together. Bumping
-# only the ARG does nothing: the image's RUN installs voxedge==${ARG} and then
-# `pip install -r` this file, which downgrades it straight back. Caught by
-# checking `pip show voxedge` inside a built image, not by reading the diff.
+webrtcvad-wheels>=2.0.14
+prometheus_client>=0.20,<1
+python-json-logger>=2.0,<4
+huggingface_hub>=0.20
+voxedge==0.0.15a1

@@ -1,0 +1,93 @@
+# Source overlays on digest-pinned upstream ARM64 bases. Build before up.
+services:
+  speech:
+    image: edgearm-speech:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.speech
+    init: true
+    network_mode: host
+    privileged: true # Initial BSP compatibility; narrow device grants require board validation.
+    mem_limit: 8g
+    memswap_limit: 8g
+    command: [python3, -m, uvicorn, "server.main:app", --host, "127.0.0.1", --port, "8621"]
+    volumes:
+      - /dev:/dev
+      - ${EDGEARM_DATA_ROOT:?}/asr:/opt/asr/models
+      - ${EDGEARM_DATA_ROOT:?}/tts:/opt/tts/models
+      - ${EDGEARM_DATA_ROOT:?}/voice-data:/opt/seeed-local-voice/data
+    environment:
+      OVS_PROFILE: rk3588-default
+      OVS_PROFILE_DEFAULT: rk3588-default
+      RK_ARTIFACT_MANIFEST: /opt/speech/deploy/artifacts/rk_manifest.json
+      OVS_MAX_CONCURRENT_SESSIONS: "1"
+      OVS_V2V_IDLE_TIMEOUT_S: "90"
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, curl, -fsS, "http://127.0.0.1:8621/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 300s
+  llm:
+    image: edgearm-llm:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.llm
+    init: true
+    network_mode: host
+    privileged: true # Same host Runtime/proxy ABI as the pinned upstream base.
+    mem_limit: 3g
+    memswap_limit: 3g
+    volumes:
+      - /dev:/dev
+      - /usr/lib:/opt/rk1828/host-lib:ro
+      - ${EDGEARM_DATA_ROOT:?}/llm:/opt/llm/models
+    environment:
+      RK1828_ARTIFACT_AUTO_DOWNLOAD: "1"
+      RK1828_ARTIFACT_REPO_ID: harvestsu/seeed-local-voice-rk-artifacts
+      RK1828_ARTIFACT_PREFIX: rk1828/opt/llm/qwen3-4b
+      RK1828_MAX_CONTEXT: "2048"
+      RK1828_CORE_MASK: ff
+      RK1828_PORT: "1828"
+      RK1828_HOST: "127.0.0.1"
+      RK1828_READY_TIMEOUT: "180"
+      RK1828_START_ATTEMPTS: "1"
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
+    restart: "no" # Failed card loads need diagnosis, not repeated automatic attempts.
+    healthcheck:
+      test: [CMD, curl, -fsS, "http://127.0.0.1:1828/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 900s
+  agent:
+    image: edgearm-agent:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.agent
+    init: true
+    network_mode: host
+    mem_limit: 1g
+    memswap_limit: 1g
+    depends_on:
+      speech: {condition: service_healthy}
+      llm: {condition: service_healthy}
+    command: [edgearm, run, voice_so101, --config, /opt/voice/config/agent-config.yaml]
+    device_cgroup_rules: ["c 116:* rwm"]
+    group_add: ["29"]
+    volumes:
+      - /dev/snd:/dev/snd
+      - ./agent-config.yaml:/opt/voice/config/agent-config.yaml:ro
+      - ./audio_profiles.yaml:/opt/voice/config/audio_profiles.yaml:ro
+      - ${EDGEARM_DATA_ROOT:?}/agent-state:/var/lib/edgearm
+      - ${EDGEARM_REPO_ROOT:?}/.local/run/edgearm:/run/so101
+    environment:
+      CONFIG_DIR: /opt/voice/config
+      EDGEARM_AUDIO_INPUT: ${EDGEARM_AUDIO_INPUT:-auto}
+      EDGEARM_AUDIO_OUTPUT: ${EDGEARM_AUDIO_OUTPUT:-auto}
+      OVS_DEBUG_DASHBOARD_BIND: "127.0.0.1"
+      OVS_AGENT_SERVER_LOOP: "0"
+      OVS_AGENT_SESSION_MAX_INPUT_TOKENS: "1000"
+    restart: unless-stopped

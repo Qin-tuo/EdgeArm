@@ -41,14 +41,8 @@ def _import_or_none(modpath: str, clsname: str):
 # ---------------------------------------------------------------------------
 
 _FLAG_TABLE = [
-    ("voxedge.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend", True),
-    ("voxedge.backends.sherpa.tts",          "SherpaTTSBackend",     True),
-    ("voxedge.backends.sherpa.asr",          "SherpaASRBackend",     True),
-    ("voxedge.backends.jetson.kokoro_trt",       "KokoroTRTBackend",     True),
-    ("voxedge.backends.jetson.matcha_trt",       "MatchaTRTBackend",     True),
-    ("voxedge.backends.rk.tts",              "RKTTSBackend",         False),
-    ("voxedge.backends.rk.asr",              "RKASRBackend",         False),
-    ("voxedge.backends.whisper",             "WhisperASR",           True),
+    ("voxedge.backends.rk.tts", "RKTTSBackend", False),
+    ("voxedge.backends.rk.asr", "RKASRBackend", False),
 ]
 
 
@@ -103,30 +97,8 @@ def test_unload_idempotent_without_preload(modpath, clsname):
     assert ready is False or ready == 0 or ready is None
 
 
-def test_sherpa_tts_unload_after_fake_ready():
-    """Force ``_ready=True`` to exercise the non-early-return path."""
-    cls = _import_or_none("voxedge.backends.sherpa.tts", "SherpaTTSBackend")
-    inst = _safe_construct(cls)
-    # Pretend preload succeeded (without actually loading sherpa-onnx).
-    inst._ready = True
-    inst.unload()
-    assert inst.is_ready() is False
-    # Idempotent.
-    inst.unload()
-    assert inst.is_ready() is False
 
 
-def test_trt_edgellm_tts_unload_with_no_worker():
-    """TRTEdgeLLMTTSBackend.unload() with _ready=True but no worker shouldn't crash."""
-    cls = _import_or_none(
-        "voxedge.backends.jetson.trt_edge_llm_tts", "TRTEdgeLLMTTSBackend"
-    )
-    inst = _safe_construct(cls)
-    inst._ready = True
-    inst._worker = None  # explicitly no subprocess
-    inst.unload()
-    assert inst.is_ready() is False
-    inst.unload()  # idempotent
 
 
 def test_rk_asr_stream_adapter_after_unload():
@@ -166,33 +138,3 @@ def test_rk_asr_stream_adapter_after_unload():
         adapter.cancel_and_finalize()
     with pytest.raises(RuntimeError):
         adapter.get_partial()
-
-
-def test_kokoro_trt_unload_clears_engine_fields():
-    cls = _import_or_none("voxedge.backends.jetson.kokoro_trt", "KokoroTRTBackend")
-    inst = _safe_construct(cls)
-    inst._ready = True
-    inst._engine = object()
-    inst._ctx = object()
-    inst._split_engines = {"x": object()}
-    inst.unload()
-    assert inst._engine is None
-    assert inst._ctx is None
-    assert inst._split_engines == {}
-    assert inst.is_ready() is False
-    inst.unload()  # idempotent
-
-
-def test_matcha_trt_unload_clears_fields():
-    cls = _import_or_none("voxedge.backends.jetson.matcha_trt", "MatchaTRTBackend")
-    inst = _safe_construct(cls)
-    inst._ready = True
-    inst._acoustic_ort = object()
-    inst._vocos_engine = object()
-    inst.unload()
-    assert inst._acoustic_ort is None
-    assert inst._vocos_engine is None
-    assert inst.is_ready() is False
-    inst.unload()
-
-

@@ -25,22 +25,8 @@ def _clear_env(monkeypatch):
 # ---------- Aggregation math ----------
 
 
-def test_jetson_matcha_plus_paraformer_takes_min_finite():
-    """matcha (tts max=2) + paraformer (asr max=None=+inf) -> min = 2."""
-    profile = {
-        "asr_backend": "jetson.paraformer_trt",
-        "tts_backend": "jetson.matcha_trt",
-    }
-    assert resolve_limit(profile) == 2
 
 
-def test_cpu_pair_yields_desktop_default():
-    """CPU sherpa pair -> min(4, 4) = 4."""
-    profile = {
-        "asr_backend": "cpu.sherpa_asr",
-        "tts_backend": "cpu.sherpa",
-    }
-    assert resolve_limit(profile) == 4
 
 
 def test_rk_pair_yields_serial():
@@ -58,8 +44,8 @@ def test_rk_pair_yields_serial():
 def test_profile_downgrade_honored():
     """Setting profile.max_concurrent_sessions BELOW ceiling downgrades."""
     profile = {
-        "asr_backend": "jetson.paraformer_trt",
-        "tts_backend": "jetson.matcha_trt",
+        "asr_backend": "rk.asr",
+        "tts_backend": "rk.tts",
         "max_concurrent_sessions": 1,
     }
     assert resolve_limit(profile) == 1
@@ -83,8 +69,8 @@ def test_profile_upgrade_clamped_with_warning(caplog):
 def test_env_downgrade_honored(monkeypatch):
     monkeypatch.setenv("OVS_MAX_CONCURRENT_SESSIONS", "1")
     profile = {
-        "asr_backend": "cpu.sherpa_asr",
-        "tts_backend": "cpu.sherpa",
+        "asr_backend": "rk.asr",
+        "tts_backend": "rk.tts",
     }
     assert resolve_limit(profile) == 1
 
@@ -92,11 +78,11 @@ def test_env_downgrade_honored(monkeypatch):
 def test_env_upgrade_clamped_with_warning(monkeypatch, caplog):
     monkeypatch.setenv("OVS_MAX_CONCURRENT_SESSIONS", "16")
     profile = {
-        "asr_backend": "jetson.paraformer_trt",
-        "tts_backend": "jetson.matcha_trt",
+        "asr_backend": "rk.asr",
+        "tts_backend": "rk.tts",
     }
     with caplog.at_level(logging.WARNING, logger="server.core.session_limiter"):
-        assert resolve_limit(profile) == 2
+        assert resolve_limit(profile) == 1
     assert any("OVS_MAX_CONCURRENT_SESSIONS" in r.message for r in caplog.records)
 
 
@@ -132,8 +118,8 @@ def test_no_profile_uses_unknown_default():
 def test_env_overrides_profile(monkeypatch):
     monkeypatch.setenv("OVS_MAX_CONCURRENT_SESSIONS", "1")
     profile = {
-        "asr_backend": "cpu.sherpa_asr",
-        "tts_backend": "cpu.sherpa",
+        "asr_backend": "rk.asr",
+        "tts_backend": "rk.tts",
         "max_concurrent_sessions": 3,
     }
     assert resolve_limit(profile) == 1

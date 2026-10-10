@@ -184,65 +184,21 @@ class ASRBackend(ABC):
 
 
 _ASR_REGISTRY: Dict[str, Tuple[str, str]] = {
-    "jetson.trt_edge_llm":   ("voxedge.backends.jetson.trt_edge_llm_asr", "TRTEdgeLLMASRBackend"),
-    "jetson.paraformer_trt": ("voxedge.backends.jetson.paraformer_trt", "ParaformerTRTBackend"),
-    "jetson.sensevoice_trt": ("voxedge.backends.jetson.sensevoice_trt", "SenseVoiceTRTBackend"),
-    "cpu.sherpa_asr":        ("voxedge.backends.sherpa.asr",          "SherpaASRBackend"),
-    "rk.asr":                ("voxedge.backends.rk.asr",              "RKASRBackend"),
-    # One class, three encoder execution paths. The spec picks the path; the
-    # config builder supplies the window and the boundary guard that path's
-    # compiled graph expects.
-    "hailo.whisper":         ("voxedge.backends.whisper",             "WhisperASR"),
-    "rk.whisper":            ("voxedge.backends.whisper",             "WhisperASR"),
-    "jetson.whisper_trt":    ("voxedge.backends.whisper",             "WhisperASR"),
+    "rk.asr": ("voxedge.backends.rk.asr", "RKASRBackend"),
 }
 
 
 def _lazy_import(module_path: str, attr: str):
-    mod = importlib.import_module(module_path)
-    return getattr(mod, attr)
+    return getattr(importlib.import_module(module_path), attr)
 
 
 def create_asr_backend() -> ASRBackend:
-    """Factory: instantiate the ASR backend declared by the loaded profile.
-
-    Reads ``asr_backend`` from server.core.profile_loader.current_profile().
-    The value must be a registry key (e.g. ``jetson.trt_edge_llm``). Raises
-    ValueError if no profile is loaded, the key is missing, or unknown.
-    """
+    """Instantiate only the selected RK backend through the original contract."""
     from server.core.profile_loader import current_profile
-    spec = current_profile().get("asr_backend")
-    if not spec:
-        raise ValueError("Profile must declare 'asr_backend'")
+    from server.core.voxedge_backend_config import build_rk_asr_config
+    profile = current_profile()
+    spec = profile.get("asr_backend")
     if spec not in _ASR_REGISTRY:
-        raise ValueError(f"Unknown asr_backend: {spec!r}")
+        raise ValueError(f"Unknown asr_backend: {spec!r}; this product requires rk.asr")
     module_path, cls_name = _ASR_REGISTRY[spec]
-    logger.info("Creating ASR backend %s (%s.%s)", spec, module_path, cls_name)
-    cls = _lazy_import(module_path, cls_name)
-    # voxedge backends are env-free: build their config from env/profile in the
-    # product layer (preserves voxedge's zero-env property). Other specs keep
-    # their legacy os.environ-reading __init__.
-    if spec == "jetson.trt_edge_llm":
-        from server.core.voxedge_backend_config import build_trt_edge_llm_asr_config
-        config = build_trt_edge_llm_asr_config(profile=current_profile())
-        return cls(config=config)
-    if spec == "jetson.paraformer_trt":
-        from server.core.voxedge_backend_config import build_paraformer_trt_config
-        config = build_paraformer_trt_config(profile=current_profile())
-        return cls(config=config)
-    if spec == "jetson.sensevoice_trt":
-        from server.core.voxedge_backend_config import build_sensevoice_trt_config
-        config = build_sensevoice_trt_config(profile=current_profile())
-        return cls(config=config)
-    if spec == "cpu.sherpa_asr":
-        from server.core.voxedge_backend_config import build_sherpa_asr_config
-        config = build_sherpa_asr_config(profile=current_profile())
-        return cls(config=config)
-    if spec == "rk.asr":
-        from server.core.voxedge_backend_config import build_rk_asr_config
-        config = build_rk_asr_config(profile=current_profile())
-        return cls(config=config)
-    if spec in ("hailo.whisper", "rk.whisper", "jetson.whisper_trt"):
-        from server.core.voxedge_backend_config import build_config_for_spec
-        return cls(config=build_config_for_spec(spec, "asr", current_profile()))
-    return cls()
+    return _lazy_import(module_path, cls_name)(config=build_rk_asr_config(profile))

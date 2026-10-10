@@ -178,7 +178,7 @@ def _split_vad_block(samples, events):
         out.append((samples[cursor:], None))
     return out
 
-app = FastAPI(title="Jetson Speech Service", version="2.0.0")
+app = FastAPI(title="EdgeArm Speech Service", version="2.0.0")
 
 
 # Week 2: HTTP middleware injects/propagates X-Request-ID and stores it

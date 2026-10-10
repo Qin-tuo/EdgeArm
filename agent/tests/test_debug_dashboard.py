@@ -2,6 +2,9 @@
 broadcasted hook events as JSON."""
 from __future__ import annotations
 
+import pytest
+pytestmark = pytest.mark.network
+
 import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock

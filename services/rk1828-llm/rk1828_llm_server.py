@@ -53,7 +53,7 @@ TOOL_MIN_MAX_TOKENS = 320
 # becomes ready at all, and every attempt degrades the EP from 8 cores to 4 —
 # see BUILD.md 'Single-EP exclusivity').
 READY_TIMEOUT_S = 180.0
-START_ATTEMPTS = 3
+START_ATTEMPTS = 1
 # After the last attempt, wait before exiting. The container's restart policy
 # would otherwise re-enter this loop immediately and keep hammering a card that
 # cannot load, forever, at three failed loads per cycle.
@@ -517,7 +517,7 @@ class ChatRequest(BaseModel):
     tool_choice: Optional[Any] = None
 
 
-app = FastAPI(title="RK1828 Qwen3-4B OpenAI shim")
+app = FastAPI(title="EdgeArm RK1828 LLM Service")
 WORKER: Optional[Qwen3Worker] = None
 
 
@@ -708,13 +708,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--binary",
-        default="/home/radxa/rk1828/rknn3-model-zoo/install/rk3588_linux_aarch64/"
-        "rknn_Qwen3_demo/rknn_qwen3_demo",
+        default="/opt/rk1828/rknn_qwen3_demo",
     )
     ap.add_argument(
         "--model-dir",
-        default="/home/radxa/rk1828/rknn3-model-zoo/install/rk3588_linux_aarch64/"
-        "rknn_Qwen3_demo/model",
+        default="/opt/llm/models",
     )
     ap.add_argument("--core-mask", default="ff")
     ap.add_argument("--max-context", type=int, default=2048)

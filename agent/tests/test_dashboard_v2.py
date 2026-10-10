@@ -1,6 +1,9 @@
 """Tests for DebugDashboardPlugin v2: control endpoints + state broadcast."""
 from __future__ import annotations
 
+import pytest
+pytestmark = pytest.mark.network
+
 import asyncio
 import json
 from types import SimpleNamespace

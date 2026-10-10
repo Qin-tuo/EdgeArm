@@ -27,10 +27,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-try:
-    import sounddevice as sd
-except (ImportError, OSError):  # pragma: no cover - hardware-dependent
-    sd = None  # type: ignore[assignment]
+from .sounddevice_backend import sd
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +105,7 @@ def _device_signature(device_index: int | str | None) -> tuple[int, str]:
 def _load_yaml_profiles(config_dir: str | None) -> list[dict] | None:
     """Load ``audio_profiles.yaml`` from the config dir, or None if absent."""
     if not config_dir:
-        config_dir = os.getenv("CONFIG_DIR", "/opt/seeed/voice_arm/config")
+        config_dir = os.getenv("CONFIG_DIR", "/opt/voice/config")
     path = os.path.join(config_dir, "audio_profiles.yaml")
     if not os.path.isfile(path):
         return None
@@ -234,6 +231,7 @@ def resolve_mic_setup(
     channels_cfg: Any = "auto",
     channel_select_cfg: Any = None,
     config_dir: str | None = None,
+    probe_device: bool = True,
 ) -> MicSetup:
     """Resolve ``(channels, select, makeup)`` from config + device detection.
 
@@ -260,6 +258,9 @@ def resolve_mic_setup(
                 channel_select_cfg,
             )
 
+    if _is_auto(channels_cfg) and not probe_device:
+        # Native detection occurs when AudioIO opens/refreshes capture, on its worker.
+        return MicSetup(1, None if sel_is_mean else 0, None, None)
     if _is_auto(channels_cfg):
         prof = resolve_mic_profile(device_index, config_dir=config_dir)
         channels = prof.mic_channels

@@ -13,13 +13,8 @@ from typing import AsyncIterator, Callable
 
 import numpy as np
 
-try:
-    import sounddevice as sd
-except (ImportError, OSError) as _sd_exc:  # pragma: no cover - hardware-dependent
-    sd = None  # type: ignore[assignment]
-    _SD_IMPORT_ERR: Exception | None = _sd_exc
-else:
-    _SD_IMPORT_ERR = None
+from .audio.sounddevice_backend import sd
+_SD_IMPORT_ERR = None
 
 logger = logging.getLogger(__name__)
 

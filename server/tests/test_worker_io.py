@@ -234,6 +234,9 @@ async def test_async_send_request_cancel_while_awaiting_fires_cancel():
     assert "rid-W" in cancel_writes[-1]
     # Semaphore must also be released.
     assert wio._sem._value == 1, "semaphore leaked after await-cancel"
+    # The abandoned q.get thread must also finish, without its 60s timeout.
+    await asyncio.wait_for(asyncio.get_running_loop().shutdown_default_executor(), timeout=1)
+    proc.stdout.eof()
 
 
 @asynctest
@@ -408,12 +411,19 @@ async def test_async_send_request_worker_exit():
 async def test_semaphore_released_on_success():
     proc = _FakeProc()
     wio = WorkerIO(proc, concurrency=1)
+    original_write = proc.stdin.write
+
+    def reply_after_request(s):
+        written = original_write(s)
+        request = json.loads(s)
+        proc.stdout.feed(json.dumps({'id': request['id'], 'event': 'done', 'ok': True}))
+        return written
+
+    # A worker can reply only after receiving its request. Sleeping in a
+    # feeder races inflight registration and creates an unsolicited event.
+    proc.stdin.write = reply_after_request
 
     async def run_one(rid: str):
-        def _feeder():
-            time.sleep(0.01)
-            proc.stdout.feed(json.dumps({"id": rid, "event": "done", "ok": True}))
-        threading.Thread(target=_feeder, daemon=True).start()
         async for _ in wio.send_request(rid, {"id": rid}):
             pass
 
@@ -421,6 +431,8 @@ async def test_semaphore_released_on_success():
     await asyncio.wait_for(run_one("a"), timeout=2.0)
     await asyncio.wait_for(run_one("b"), timeout=2.0)
     await asyncio.wait_for(run_one("c"), timeout=2.0)
+    wio.close()
+    proc.stdout.eof()
 
 
 @asynctest

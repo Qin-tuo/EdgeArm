@@ -1,6 +1,9 @@
 """SLVClient against a mock /v2v/stream WS server."""
 from __future__ import annotations
 
+import pytest
+pytestmark = pytest.mark.network
+
 import asyncio
 import json
 import struct

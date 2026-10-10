@@ -16,6 +16,9 @@ fresh session is a silent no-op that stalls the turn. It must drop instead.
 """
 from __future__ import annotations
 
+import pytest
+pytestmark = pytest.mark.network
+
 import asyncio
 import json
 

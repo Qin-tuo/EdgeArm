@@ -15,14 +15,6 @@ from server.core.coordinator import BackendCoordinator, _resolve_mode
 # ---------- _resolve_mode unit table ----------
 
 
-def test_concurrent_jetson_pair_stays_concurrent():
-    """matcha (parallel, K=2) + paraformer (parallel, max=None) -> concurrent."""
-    policy = {"mode": "concurrent"}
-    profile = {
-        "asr_backend": "jetson.paraformer_trt",
-        "tts_backend": "jetson.matcha_trt",
-    }
-    assert _resolve_mode(policy, profile) == "concurrent"
 
 
 def test_concurrent_with_rk_downgrades_to_serialized():
@@ -35,14 +27,6 @@ def test_concurrent_with_rk_downgrades_to_serialized():
     assert _resolve_mode(policy, profile) == "serialized"
 
 
-def test_concurrent_with_cpu_pair_stays_concurrent():
-    """sherpa CPU (parallel, 4) on both sides -> concurrent."""
-    policy = {"mode": "concurrent"}
-    profile = {
-        "asr_backend": "cpu.sherpa_asr",
-        "tts_backend": "cpu.sherpa",
-    }
-    assert _resolve_mode(policy, profile) == "concurrent"
 
 
 def test_concurrent_mixed_rk_asr_jetson_tts_downgrades():
@@ -93,15 +77,6 @@ def test_coordinator_downgrade_creates_lock():
     assert c._lock is not None
 
 
-def test_coordinator_concurrent_jetson_no_lock():
-    policy = {"mode": "concurrent"}
-    profile = {
-        "asr_backend": "jetson.paraformer_trt",
-        "tts_backend": "jetson.matcha_trt",
-    }
-    c = BackendCoordinator(policy, profile=profile)
-    assert c.mode == "concurrent"
-    assert c._lock is None
 
 
 def test_coordinator_back_compat_no_profile():

@@ -137,10 +137,8 @@ async def test_close_stops_keepalive(monkeypatch):
 def test_keepalive_clears_the_tightest_deployed_watchdog():
     """Margin must be sized against the tightest DEPLOYED idle timeout.
 
-    The server defaults to 90s, but deploy/docker-compose.jetson-rebot.yml
-    pins OVS_V2V_IDLE_TIMEOUT_S=45 on the arm stack. Sizing the cadence
-    against 90s leaves only 1.5x margin there and one late ping reaps a
-    live session.
+    The SO-101 deployment uses 90s. Retain the conservative upstream
+    cadence and check its margin against the selected deployment.
     """
     c = SLVClient("ws://test/v2v/stream", {})
     assert c._KEEPALIVE_DEFAULT_S * 3 <= c._TIGHTEST_DEPLOYED_IDLE_TIMEOUT_S
@@ -153,15 +151,15 @@ def test_tightest_deployed_idle_timeout_matches_the_repo():
     than silently erasing the keepalive margin.
     """
     import pathlib
-    import re
+    import yaml
 
     root = pathlib.Path(__file__).resolve().parents[2]
     found = []
-    for path in list(root.glob("deploy/*.yml")) + list(root.glob("deploy/*.yaml")):
-        for m in re.finditer(
-            r"OVS_V2V_IDLE_TIMEOUT_S\s*[=:]\s*([0-9.]+)", path.read_text()
-        ):
-            found.append(float(m.group(1)))
+    compose = yaml.safe_load((root / "deploy/compose.yaml").read_text())
+    for service in compose['services'].values():
+        value = service.get('environment', {}).get('OVS_V2V_IDLE_TIMEOUT_S')
+        if value is not None:
+            found.append(float(value))
     assert found, "no OVS_V2V_IDLE_TIMEOUT_S found under deploy/"
     c = SLVClient("ws://test/v2v/stream", {})
     assert min(found) >= c._TIGHTEST_DEPLOYED_IDLE_TIMEOUT_S, (

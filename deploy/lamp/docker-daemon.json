@@ -1,9 +1,0 @@
-{
-  "data-root": "/userdata/Robot-voice-stack/.local/docker-data",
-  "exec-root": "/userdata/Robot-voice-stack/.local/docker-exec",
-  "pidfile": "/userdata/Robot-voice-stack/.local/docker-exec/docker.pid",
-  "storage-driver": "overlay2",
-  "features": {"containerd-snapshotter": false},
-  "log-driver": "local",
-  "log-opts": {"max-size": "10m", "max-file": "3"}
-}

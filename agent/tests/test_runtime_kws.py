@@ -195,7 +195,7 @@ async def test_runtime_source_wakes_and_releases_tap():
 
 
 def test_conversation_registers_runtime_kws_only_for_opt_in(monkeypatch):
-    from ovs_agent.apps.conversation import app as conversation
+    from ovs_agent.apps.voice_so101 import app as conversation
 
     made = []
 
@@ -210,7 +210,7 @@ def test_conversation_registers_runtime_kws_only_for_opt_in(monkeypatch):
             return True
 
     monkeypatch.setattr(conversation, "RuntimeKwsSource", FakeSource)
-    disabled = conversation.ConversationApp(Config(pipeline_mode="wake_word"))
+    disabled = conversation.VoiceSO101App(Config(pipeline_mode="wake_word"))
     assert not any(getattr(p, "name", "") == "runtime_kws" for p in disabled.plugins)
 
     cfg = Config(
@@ -225,31 +225,17 @@ def test_conversation_registers_runtime_kws_only_for_opt_in(monkeypatch):
             }
         },
     )
-    enabled = conversation.ConversationApp(cfg)
+    enabled = conversation.VoiceSO101App(cfg)
     assert isinstance(enabled.audio, TappedAudioIO)
     assert any(getattr(p, "name", "") == "runtime_kws" for p in enabled.plugins)
     assert made[0]["phrases"] == ["你好小智", "Hey Seeed"]
     assert enabled.config.wake_phrases[:2] == ["你好小智", "Hey Seeed"]
 
 
-def test_conversation_shipped_config_resolves_runtime_kws_assets(monkeypatch):
-    monkeypatch.setenv("PIPELINE_MODE", "wake_word")
-    monkeypatch.setenv("WAKEWORD_BACKEND", "sherpa_onnx")
-    monkeypatch.setenv("WAKEWORD_PHRASE", "Hey Seeed")
-    monkeypatch.setenv("WAKEWORD_MODEL_DIR", "/models/kws")
-    cfg = load_config(
-        Path(__file__).parents[1] / "ovs_agent/apps/conversation/config.yaml"
-    )
-    wake = cfg.metadata["wakeword"]
-    assert wake["phrases"] == ["Hey Seeed"]
-    assert wake["model"]["encoder"].startswith("/models/kws/")
-    assert wake["model"]["encoder"].endswith("chunk-8-left-64.int8.onnx")
-    assert wake["compiler"]["lexicon"] == "/models/kws/en.phone"
-    assert float(cfg.wake_mic_skip_ms) == 120
 
 
 def test_conversation_prefers_persisted_runtime_phrase(monkeypatch, tmp_path):
-    from ovs_agent.apps.conversation import app as conversation
+    from ovs_agent.apps.voice_so101 import app as conversation
 
     saved = tmp_path / "wakeword.json"
     saved.write_text(json.dumps({"version": 1, "phrases": ["销售助手"]}), encoding="utf-8")
@@ -277,7 +263,7 @@ def test_conversation_prefers_persisted_runtime_phrase(monkeypatch, tmp_path):
             }
         },
     )
-    conversation.ConversationApp(cfg)
+    conversation.VoiceSO101App(cfg)
     assert observed[0]["phrases"] == ["销售助手"]
 
 

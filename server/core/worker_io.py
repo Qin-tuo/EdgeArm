@@ -219,6 +219,11 @@ class WorkerIO:
                     finished_naturally = True
                     return
         finally:
+            # Cancelling the asyncio future cannot interrupt a thread already
+            # inside q.get(). Wake it before discarding this request's queue;
+            # otherwise it occupies the executor until the 60s timeout.
+            if not finished_naturally:
+                q.put({"event": "_worker_exit"})
             with self._inflight_lock:
                 self._inflight.pop(request_id, None)
             self._sem.release()

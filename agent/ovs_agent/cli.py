@@ -1,4 +1,4 @@
-"""ovs-agent CLI entry point."""
+"""edgearm CLI entry point."""
 from __future__ import annotations
 
 import argparse
@@ -48,15 +48,16 @@ def _load_app_class(app_name: str):  # noqa: ANN001
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="ovs-agent")
+    parser = argparse.ArgumentParser(prog="edgearm")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_run = sub.add_parser("run", help="run an app")
     p_run.add_argument(
         "app_name",
         nargs="?",
-        default="multi_mode",
-        help="app under agent/apps/, e.g. 'multi_mode' (default)",
+        default="voice_so101",
+        choices=["voice_so101"],
+        help="SO-101 product application (default)",
     )
     p_run.add_argument(
         "--config",
