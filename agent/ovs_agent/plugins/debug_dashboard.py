@@ -382,6 +382,13 @@ class DebugDashboardPlugin(Plugin):
         text = (body or {}).get("text")
         if not isinstance(text, str) or not text.strip():
             return web.json_response({"ok": False, "error": "missing text"}, status=400)
+        cfg = getattr(self.app, "config", None)
+        try:
+            server_loop = bool(cfg.server_loop_enabled()) if cfg is not None else False
+        except AttributeError:
+            server_loop = bool(getattr(cfg, "server_loop", False))
+        if not server_loop:
+            return await self._dispatch_text_turn(text, (body or {}).get("language"))
         # Typed-text bypasses ASR, so no ASRFinal will clear the playback
         # discard latch a prior barge-in / abort / sleep may have armed.
         # Clear it explicitly so this turn's TTS is actually audible.
@@ -429,9 +436,8 @@ class DebugDashboardPlugin(Plugin):
         """Debug-only: fake an ASRFinal so the dialogue runner (and any
         tool-call / preamble path) executes end-to-end without a real mic.
 
-        Unlike /api/control/send_text (which only forwards the string to
-        SLV's TTS-ish ``send_text``), this synthesises a real
-        ``ASRFinal`` event and feeds it through ``_dispatch_one`` — i.e.
+        This shares the client-loop text entrypoint used by send_text:
+        synthesise an ``ASRFinal`` event and feed ``_dispatch_one`` — i.e.
         exactly the entrypoint a server-VAD ASR final would hit. The
         result: full LLM turn, tool_call dispatch, preamble emission,
         arm action — same code paths a spoken utterance walks.
@@ -448,6 +454,17 @@ class DebugDashboardPlugin(Plugin):
                 {"ok": False, "error": "missing text"}, status=422
             )
         language = (body or {}).get("language")
+        if language is not None and not isinstance(language, str):
+            return web.json_response(
+                {"ok": False, "error": "language must be string"}, status=422
+            )
+
+        return await self._dispatch_text_turn(text, language)
+
+    async def _dispatch_text_turn(self, text: str, language: str | None = None):
+        """Route typed input through the same dialogue runner as ASR input."""
+        from aiohttp import web
+
         if language is not None and not isinstance(language, str):
             return web.json_response(
                 {"ok": False, "error": "language must be string"}, status=422
@@ -499,7 +516,7 @@ class DebugDashboardPlugin(Plugin):
             if getattr(app, "_state", ConvState.IDLE) == ConvState.SLEEPING:
                 wake = getattr(app, "wake", None)
                 if callable(wake):
-                    await wake(source="inject_user_text")
+                    await wake(source="typed_text")
         except Exception:
             logger.debug("pre-inject wake failed", exc_info=True)
 
@@ -513,7 +530,7 @@ class DebugDashboardPlugin(Plugin):
 
         evt = ASRFinal(text=text, session_complete=False, language=language)
         logger.info(
-            "inject_user_text: faking ASRFinal text=%r language=%r",
+            "typed input: dispatching dialogue text=%r language=%r",
             text, language,
         )
         try:

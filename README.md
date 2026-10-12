@@ -98,7 +98,9 @@ source scripts/activate-env.sh
 scripts/check.sh
 ```
 
-已有仓库可从 `cd /userdata/EdgeArm` 开始。项目使用 **venv + pip**，依赖版本固定在 [deploy/python.lock.txt](deploy/python.lock.txt)。`setup-tools.sh` 准备项目内的 Docker CLI、daemon 和 Compose；`setup-dev.sh` 安装应用开发依赖。
+已有仓库可从 `cd /userdata/EdgeArm` 开始。项目使用 **venv + pip**，依赖版本固定在 [deploy/python.lock.txt](deploy/python.lock.txt)。`setup-tools.sh` 准备项目内的 Docker CLI、daemon、Compose 和 Buildx；`setup-dev.sh` 安装应用开发依赖及 ARM64 默认后端所需的 Lite2 2.3.2。
+
+当前 BSP 不具备完整容器支持，不更换内核时采用 [原生运行方案](docs/framework-audit.md)。ASR/TTS 基本推理已通过；RK1828 仅 EFFICIENT work / EFFICIENT prefill 在此前厂商服务 33 次、项目 worker 41 次及页面对话样本中通过传输检查。其他已测模式出现断链，两次重启后完全跳过 SMI 的对照也在首条 31-token 请求失败；根因未确定，冷断电首次上电尚未验证。长期稳定性与答案质量未通过，工具请求默认拒绝，录放音及机器人外设尚未完成验收。当前启动命令和测试边界见 [runbook](docs/runbook.md)。
 
 以后每次打开终端，只需：
 
@@ -262,11 +264,21 @@ scripts/check.sh
 
 检查覆盖依赖、Docker/Compose 配置、产品导入、版本锁、文档链接，以及 agent、server 和机械臂契约回归。日志与 JUnit 报告保存在 `.local/reports/`。
 
+模型文件和真实服务推理可分别检查：
+
+```bash
+python scripts/test-models.py --verify-only
+# speech 和 llm 服务就绪后：
+python scripts/test-models.py --services-only
+```
+
+推理检查覆盖 LLM 回复、有效 TTS 音频和 TTS→ASR 单句回读，报告与试听 WAV 保存在 `.local/reports/model-smoke/`。启动方式及通过条件见 [模型验证](docs/model-storage.md#验证模型)。
+
 | 验证项 | 当前结果 |
 |---|---|
-| 软件回归（2026-10-10） | **1214 项通过、2 项跳过、0 失败** |
+| 软件回归（2026-10-12） | **1257 项通过、2 项跳过、0 失败** |
 | Silero CPU VAD | 静音与仓库语音样本测试通过 |
-| ASR/TTS 质量与延迟、完整 V2V 链路 | 待本机实测 |
+| ASR/TTS 质量与延迟、完整 V2V 链路 | ASR/TTS 单句基本推理通过；完整质量、延迟及长期链路待验收 |
 | 真实声卡、SO-101、D435i、接触反馈 | 待硬件接入与验收 |
 | 语音/视觉 NPU 共存、峰值内存与热运行 | 待整机测量 |
 

@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 # Run the prepared development daemon in the foreground (administrator only).
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+CONFIG="${1:-$ROOT/deploy/docker-daemon.json}"
+if [[ "$CONFIG" != /* ]]; then
+  CONFIG="$ROOT/$CONFIG"
+fi
+if [[ ! -f "$CONFIG" ]]; then
+  echo "Docker configuration not found: $CONFIG" >&2
+  exit 1
+fi
 if [[ "$EUID" != 0 ]]; then
   echo "Administrator access required: sudo $ROOT/scripts/start-docker.sh" >&2
   exit 1
@@ -14,4 +22,4 @@ fi
 mkdir -p "$ROOT/.local/docker-tmp" "$ROOT/.local/docker-exec"
 export TMPDIR="$ROOT/.local/docker-tmp"
 export DOCKER_TMPDIR="$TMPDIR"
-exec dockerd --config-file "$ROOT/deploy/docker-daemon.json"
+exec dockerd --config-file "$CONFIG"

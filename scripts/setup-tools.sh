@@ -10,6 +10,8 @@ DOCKER_VERSION=29.9.0
 DOCKER_SHA256=811f6eee271678fc98dbe5c4d896c00fc5fe2daa4f7a37069c17abc036eab85b
 COMPOSE_VERSION=v5.6.0
 COMPOSE_SHA256=733ec76717ceb59052a9609b9dadfb523b2df8eab57a54212872d10a58078ea2
+BUILDX_VERSION=v0.38.0
+BUILDX_SHA256=38e890e1a162bfdbf32fbe91404991dc4fc28e55b0de901b34374a061bab4d2c
 fetch() {
   local url="$1" target="$2"
   if [[ ! -f "$target" ]]; then
@@ -22,13 +24,20 @@ fetch "https://download.docker.com/linux/static/stable/aarch64/docker-${DOCKER_V
   ".local/downloads/docker-${DOCKER_VERSION}.tgz"
 fetch "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-aarch64" \
   .local/downloads/docker-compose-linux-aarch64
+fetch "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-arm64" \
+  ".local/downloads/buildx-${BUILDX_VERSION}.linux-arm64"
 echo "$DOCKER_SHA256  .local/downloads/docker-${DOCKER_VERSION}.tgz" | sha256sum --check
 echo "$COMPOSE_SHA256  .local/downloads/docker-compose-linux-aarch64" | sha256sum --check
+echo "$BUILDX_SHA256  .local/downloads/buildx-${BUILDX_VERSION}.linux-arm64" | sha256sum --check
 tar -xzf ".local/downloads/docker-${DOCKER_VERSION}.tgz" -C .local/bin --strip-components=1
 install -m 755 .local/downloads/docker-compose-linux-aarch64 \
   .local/docker-config/cli-plugins/docker-compose
+install -m 755 ".local/downloads/buildx-${BUILDX_VERSION}.linux-arm64" \
+  .local/docker-config/cli-plugins/docker-buildx
 sha256sum ".local/downloads/docker-${DOCKER_VERSION}.tgz" \
-  .local/downloads/docker-compose-linux-aarch64 > .local/reports/tool-download-sha256.txt
+  .local/downloads/docker-compose-linux-aarch64 \
+  ".local/downloads/buildx-${BUILDX_VERSION}.linux-arm64" > .local/reports/tool-download-sha256.txt
 export DOCKER_CONFIG="$ROOT/.local/docker-config"
 .local/bin/docker --version
 .local/bin/docker compose version
+.local/bin/docker buildx version

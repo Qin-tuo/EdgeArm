@@ -208,9 +208,10 @@ class Qwen3Worker:
             self.last_stderr.append(line)
             if len(self.last_stderr) > 200:
                 del self.last_stderr[:100]
-            # Case-INsensitive: the TTS binary emits "ready", this one "READY 1".
-            if "ready" in line.lower():
+            if line.strip().upper() == "READY 1":
                 self._ready.set()
+            if "ERROR_PIPE" in line or "ERROR_NO_DEVICE" in line:
+                self._ready.clear()
             LOG.info("[worker] %s", line)
 
     def stop(self) -> None:
@@ -290,6 +291,8 @@ class Qwen3Worker:
                         tail = dec.decode(b"", final=True)
                         if tail:
                             q.put(("text", tail))
+                        if not self.is_ready():
+                            raise WorkerError(f"worker became unavailable: {self.last_stderr[-6:]}")
                         break
                     if length > MAX_FRAME_BYTES:
                         raise WorkerError(
@@ -522,12 +525,13 @@ WORKER: Optional[Qwen3Worker] = None
 
 
 @app.get("/health")
-def health() -> dict:
-    return {
-        "status": "ok" if (WORKER and WORKER.is_ready()) else "unavailable",
+def health():
+    ready = bool(WORKER and WORKER.is_ready())
+    return JSONResponse({
+        "status": "ok" if ready else "unavailable",
         "model": MODEL_ID,
         "device": "rk1828",
-    }
+    }, status_code=200 if ready else 503)
 
 
 @app.get("/v1/models")
@@ -551,6 +555,14 @@ def _sse(obj: dict) -> str:
 
 @app.post("/v1/chat/completions")
 def chat_completions(req: ChatRequest):
+    if req.tools and os.environ.get("RK1828_ALLOW_TOOLS", "1").strip().lower() in (
+        "0", "false", "no", "off",
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="RK1828 tool requests are disabled on this deployment: "
+                   "function calling caused device disconnections during validation",
+        )
     if WORKER is None or not WORKER.is_ready():
         raise HTTPException(status_code=503, detail="RK1828 worker not ready")
 
@@ -570,13 +582,18 @@ def chat_completions(req: ChatRequest):
     created = int(time.time())
 
     if not req.stream:
-        text = "".join(WORKER.generate(prompt, max_new, tools=req.tools))
+        try:
+            text = "".join(WORKER.generate(prompt, max_new, tools=req.tools))
+        except WorkerError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         text = _THINK_RE.sub("", text)
         tool_calls: List[dict] = []
         if req.tools:
             splitter = ToolCallSplitter()
             text = splitter.feed(text) + splitter.flush()
             tool_calls = to_openai_tool_calls(splitter.bodies)
+        if not text.strip() and not tool_calls:
+            raise HTTPException(status_code=502, detail="RK1828 worker produced no output")
         message: dict = {"role": "assistant", "content": text.strip() or None}
         if tool_calls:
             message["tool_calls"] = tool_calls
@@ -614,6 +631,7 @@ def chat_completions(req: ChatRequest):
             }
         )
         n = 0
+        emitted_content = False
         splitter = ToolCallSplitter() if req.tools else None
 
         def _content_chunk(text: str) -> str:
@@ -644,15 +662,23 @@ def chat_completions(req: ChatRequest):
                     piece = splitter.feed(piece)
                     if not piece:
                         continue
+                emitted_content = emitted_content or bool(piece.strip())
                 yield _content_chunk(piece)
             if splitter is not None:
                 tail = splitter.flush()
                 if tail:
+                    emitted_content = emitted_content or bool(tail.strip())
                     yield _content_chunk(tail)
         except Exception as exc:  # noqa: BLE001
             LOG.exception("generation failed")
             yield _sse({"error": {"message": str(exc), "type": "worker_error"}})
+            yield "data: [DONE]\n\n"
+            return
         tool_calls = to_openai_tool_calls(splitter.bodies) if splitter else []
+        if not emitted_content and not tool_calls:
+            yield _sse({"error": {"message": "RK1828 worker produced no output", "type": "worker_error"}})
+            yield "data: [DONE]\n\n"
+            return
         for tc in tool_calls:
             # Emitted whole rather than as name/argument fragments: the call is
             # only recognisable once </tool_call> has arrived, so there is

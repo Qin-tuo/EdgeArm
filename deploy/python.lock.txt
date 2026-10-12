@@ -41,6 +41,7 @@ packaging==26.3
 pluggy==1.6.0
 prometheus-client==0.26.0
 propcache==0.5.4
+psutil==7.2.2
 protobuf==7.36.2
 pycparser==3.1
 pydantic==2.14.0
@@ -53,6 +54,8 @@ python-dotenv==1.2.4
 python-json-logger==3.3.0
 python-multipart==0.0.32
 pyyaml==6.0.3
+rknn-toolkit-lite2==2.3.2
+ruamel.yaml==0.19.1
 sentencepiece==0.2.1
 sherpa-onnx==1.13.6
 sherpa-onnx-core==1.13.6
@@ -61,6 +64,7 @@ sounddevice==0.5.6
 soundfile==0.14.0
 starlette==1.7.0
 sympy==1.14.0
+tokenizers==0.23.3
 tomli==2.5.0
 tqdm==4.70.1
 truststore==0.10.4

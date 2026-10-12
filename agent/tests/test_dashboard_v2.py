@@ -13,6 +13,7 @@ import aiohttp
 import pytest
 
 from ovs_agent.event_bus import EventBus
+from ovs_agent.state import ConvState
 from ovs_agent.plugins.debug_dashboard import DebugDashboardPlugin
 
 
@@ -35,6 +36,10 @@ def _mk_app(port):
         flush_tts=AsyncMock(),
     )
     app_mock.restart_mic_capture = AsyncMock()
+    app_mock._dispatch_one = AsyncMock()
+    app_mock._llm_turn_task = None
+    app_mock._state = ConvState.IDLE
+    app_mock.wake = AsyncMock()
     app_mock.session = SimpleNamespace(
         history=[
             {"role": "user", "content": "你好"},
@@ -68,8 +73,10 @@ async def test_control_endpoints(unused_tcp_port):
                 json={"text": "hi"},
             )
             assert r.status == 200
-            app_mock.slv.send_text.assert_awaited_with("hi")
-            app_mock.slv.flush_tts.assert_awaited()
+            await asyncio.sleep(0)
+            assert app_mock._dispatch_one.await_args.args[0].text == "hi"
+            app_mock.slv.send_text.assert_not_awaited()
+            app_mock.slv.flush_tts.assert_not_awaited()
 
             r = await s.post(base + "/api/control/restart_mic")
             assert r.status == 200
@@ -78,6 +85,63 @@ async def test_control_endpoints(unused_tcp_port):
             # missing text → 400
             r = await s.post(base + "/api/control/send_text", json={})
             assert r.status == 400
+    finally:
+        await plugin.stop()
+
+
+@pytest.mark.asyncio
+async def test_typed_dialogue_wakes_sleeping_agent(unused_tcp_port):
+    app = _mk_app(unused_tcp_port)
+    app._state = ConvState.SLEEPING
+    plugin = DebugDashboardPlugin(app)
+    plugin.setup()
+    await plugin.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            r = await session.post(f'http://127.0.0.1:{unused_tcp_port}/api/control/send_text',
+                                   json={'text': '你好'})
+            assert r.status == 200
+            assert (await r.json())['status'] == 'dispatched'
+            await asyncio.sleep(0)
+            app.wake.assert_awaited_once_with(source='typed_text')
+            assert app._dispatch_one.await_args.args[0].text == '你好'
+    finally:
+        await plugin.stop()
+
+
+@pytest.mark.asyncio
+async def test_typed_dialogue_rejects_overlapping_turn(unused_tcp_port):
+    app = _mk_app(unused_tcp_port)
+    app._llm_turn_task = SimpleNamespace(done=lambda: False)
+    plugin = DebugDashboardPlugin(app)
+    plugin.setup()
+    await plugin.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            r = await session.post(f'http://127.0.0.1:{unused_tcp_port}/api/control/send_text',
+                                   json={'text': '你好'})
+            assert r.status == 409
+            assert (await r.json())['status'] == 'busy'
+            app._dispatch_one.assert_not_awaited()
+    finally:
+        await plugin.stop()
+
+
+@pytest.mark.asyncio
+async def test_server_loop_preserves_text_forwarding(unused_tcp_port):
+    app = _mk_app(unused_tcp_port)
+    app.config.server_loop = True
+    plugin = DebugDashboardPlugin(app)
+    plugin.setup()
+    await plugin.start()
+    try:
+        async with aiohttp.ClientSession() as session:
+            r = await session.post(f'http://127.0.0.1:{unused_tcp_port}/api/control/send_text',
+                                   json={'text': '你好'})
+            assert r.status == 200
+            app.slv.send_text.assert_awaited_once_with('你好')
+            app.slv.flush_tts.assert_awaited_once()
+            app._dispatch_one.assert_not_awaited()
     finally:
         await plugin.stop()
 

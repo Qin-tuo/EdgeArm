@@ -25,7 +25,11 @@ services:
       HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
     restart: unless-stopped
     healthcheck:
-      test: [CMD, curl, -fsS, "http://127.0.0.1:8621/health"]
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import json, urllib.request; h=json.load(urllib.request.urlopen('http://127.0.0.1:8621/health', timeout=4)); exit(0 if h.get('asr') is True and h.get('tts') is True else 1)"
       interval: 30s
       timeout: 5s
       retries: 3
@@ -57,7 +61,11 @@ services:
       HF_ENDPOINT: ${HF_ENDPOINT:-https://huggingface.co}
     restart: "no" # Failed card loads need diagnosis, not repeated automatic attempts.
     healthcheck:
-      test: [CMD, curl, -fsS, "http://127.0.0.1:1828/health"]
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import json, urllib.request; h=json.load(urllib.request.urlopen('http://127.0.0.1:1828/health', timeout=4)); exit(0 if h.get('status') == 'ok' else 1)"
       interval: 30s
       timeout: 5s
       retries: 3

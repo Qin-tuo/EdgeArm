@@ -158,8 +158,11 @@ def _detect_platform() -> str:
         # devfreq exists on many ARM SoCs; treat as RK only when there's
         # an actual NPU sysfs hint or env. We already covered env hints
         # above; without those, fall through.
-        if Path("/sys/kernel/debug/rknpu").exists():
-            return _PLATFORM_RK
+        try:
+            if Path("/sys/kernel/debug/rknpu").exists():
+                return _PLATFORM_RK
+        except OSError:
+            pass
 
     if Path("/etc/nv_tegra_release").exists():
         return _PLATFORM_JETSON
@@ -214,26 +217,32 @@ def _check_jetson() -> Tuple[bool, str]:
 def _check_rk() -> Tuple[bool, str]:
     # First try /sys/kernel/debug/rknpu/load (requires permissions).
     rknpu_load = Path("/sys/kernel/debug/rknpu/load")
-    if rknpu_load.exists():
-        try:
-            content = rknpu_load.read_text(errors="ignore").strip()
-            if content:
-                return True, _REASON_OK
-        except (PermissionError, OSError):
-            pass  # fall through to devfreq
+    try:
+        content = rknpu_load.read_text(errors="ignore").strip()
+        if content:
+            return True, _REASON_OK
+    except OSError:
+        pass  # Missing or inaccessible debugfs: fall through to NPU devfreq.
 
-    # Fallback: any readable cur_freq under /sys/class/devfreq.
+    # Only an NPU devfreq entry is evidence about the NPU; DDR/GPU clocks
+    # must not conceal a missing NPU device.
     devfreq = Path("/sys/class/devfreq")
-    if devfreq.exists():
-        for entry in devfreq.iterdir():
-            cur = entry / "cur_freq"
-            if cur.exists():
-                try:
-                    raw = cur.read_text(errors="ignore").strip()
-                    if raw and raw.lstrip("-").isdigit():
-                        return True, _REASON_OK
-                except (PermissionError, OSError):
-                    continue
+    try:
+        entries = list(devfreq.iterdir())
+    except OSError:
+        entries = []
+    for entry in entries:
+        try:
+            name = entry.name.lower()
+            if "npu" not in name:
+                name = (entry / "name").read_text(errors="ignore").lower()
+            if "npu" not in name:
+                continue
+            raw = (entry / "cur_freq").read_text(errors="ignore").strip()
+            if raw.isdigit() and int(raw) > 0:
+                return True, _REASON_OK
+        except OSError:
+            continue
     return False, _REASON_UNAVAILABLE
 
 

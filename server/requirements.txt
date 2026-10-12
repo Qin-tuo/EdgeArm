@@ -8,4 +8,7 @@ webrtcvad-wheels>=2.0.14
 prometheus_client>=0.20,<1
 python-json-logger>=2.0,<4
 huggingface_hub>=0.20
+tokenizers>=0.15,<1
+# Default RK3588 backends import RKNNLite directly; constraints alone do not install it.
+rknn-toolkit-lite2==2.3.2; platform_machine == "aarch64" and sys_platform == "linux"
 voxedge==0.0.15a1
